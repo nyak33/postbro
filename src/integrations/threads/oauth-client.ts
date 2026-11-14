@@ -105,11 +105,29 @@ export type ThreadsOAuthErrorKind =
 
 export class ThreadsOAuthProviderError extends Error {
   readonly kind: ThreadsOAuthErrorKind;
+  /**
+   * NON-SECRET provider diagnostics for sanitized logging only:
+   * HTTP status (integer 100-599) and Meta's numeric error.code /
+   * error_subcode from the documented error envelope. Never messages,
+   * bodies, URLs, tokens, codes or secrets.
+   */
+  readonly providerStatus?: number;
+  readonly providerErrorCode?: number;
+  readonly providerErrorSubcode?: number;
 
-  constructor(kind: ThreadsOAuthErrorKind, message: string) {
+  constructor(
+    kind: ThreadsOAuthErrorKind,
+    message: string,
+    diagnostics?: { status?: number; errorCode?: number; errorSubcode?: number },
+  ) {
     super(message);
     this.name = 'ThreadsOAuthProviderError';
     this.kind = kind;
+    if (diagnostics?.status !== undefined) this.providerStatus = diagnostics.status;
+    if (diagnostics?.errorCode !== undefined) this.providerErrorCode = diagnostics.errorCode;
+    if (diagnostics?.errorSubcode !== undefined) {
+      this.providerErrorSubcode = diagnostics.errorSubcode;
+    }
   }
 }
 
@@ -137,6 +155,11 @@ export interface MockThreadsOAuthClientOptions {
   grantedScopes?: GrantedScopesEvidence;
   /** When set, exchangeCode fails with this error kind. */
   failExchangeCode?: ThreadsOAuthErrorKind;
+  /**
+   * Optional NON-SECRET numeric diagnostics attached to the failExchangeCode
+   * rejection (exercises the sanitized provider-diagnostics logging path).
+   */
+  failExchangeCodeDiagnostics?: { status?: number; errorCode?: number; errorSubcode?: number };
 }
 
 /**
@@ -153,6 +176,9 @@ export class MockThreadsOAuthClient implements ThreadsOAuthClient {
   private readonly username: string | undefined;
   private readonly grantedScopes: GrantedScopesEvidence;
   private readonly failExchangeCode: ThreadsOAuthErrorKind | undefined;
+  private readonly failExchangeCodeDiagnostics:
+    | { status?: number; errorCode?: number; errorSubcode?: number }
+    | undefined;
 
   constructor(options: MockThreadsOAuthClientOptions) {
     this.config = options.config;
@@ -160,6 +186,7 @@ export class MockThreadsOAuthClient implements ThreadsOAuthClient {
     this.username = options.username;
     this.grantedScopes = options.grantedScopes ?? { verified: false, scopes: [] };
     this.failExchangeCode = options.failExchangeCode;
+    this.failExchangeCodeDiagnostics = options.failExchangeCodeDiagnostics;
   }
 
   buildAuthorizeUrl(params: AuthorizeUrlParams): string {
@@ -171,7 +198,11 @@ export class MockThreadsOAuthClient implements ThreadsOAuthClient {
     this.calls.push({ method: 'exchangeCode' });
     if (this.failExchangeCode) {
       return Promise.reject(
-        new ThreadsOAuthProviderError(this.failExchangeCode, 'mock provider exchange failure'),
+        new ThreadsOAuthProviderError(
+          this.failExchangeCode,
+          'mock provider exchange failure',
+          this.failExchangeCodeDiagnostics,
+        ),
       );
     }
     if (typeof code !== 'string' || code.length === 0) {

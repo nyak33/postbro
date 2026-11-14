@@ -145,6 +145,18 @@ function mapProviderErrorStatus(status: number): ThreadsOAuthErrorKind {
   return 'unknown';
 }
 
+/** Integer in the valid HTTP status range; anything else is dropped. */
+function safeHttpStatus(value: number): number | undefined {
+  return Number.isInteger(value) && value >= 100 && value <= 599 ? value : undefined;
+}
+
+/** Non-negative safe integer only; strings are never accepted. */
+function safeErrorCode(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 function parseJsonObject(body: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(body);
@@ -170,6 +182,49 @@ function providerErrorKind(body: string): ThreadsOAuthErrorKind | undefined {
   // 190 = token expired/invalid; 102/104 auth/session failures on Graph.
   if (code === 190) return 'token_expired';
   return 'unknown';
+}
+
+/**
+ * Extract NON-SECRET numeric diagnostics from the Meta error envelope:
+ * numeric error.code and error_subcode only. Strings, messages, types,
+ * trace ids and any other fields are NEVER collected.
+ */
+function providerErrorDiagnostics(
+  body: string,
+): { errorCode?: number; errorSubcode?: number } | undefined {
+  const parsed = parseJsonObject(body);
+  if (!parsed) return undefined;
+  const err = parsed['error'];
+  if (typeof err !== 'object' || err === null) return undefined;
+  const record = err as Record<string, unknown>;
+  const errorCode = safeErrorCode(record['code']);
+  const errorSubcode = safeErrorCode(record['error_subcode']);
+  if (errorCode === undefined && errorSubcode === undefined) return undefined;
+  return {
+    ...(errorCode !== undefined ? { errorCode } : {}),
+    ...(errorSubcode !== undefined ? { errorSubcode } : {}),
+  };
+}
+
+/**
+ * Build a sanitized provider error for a non-200 response: mapped kind plus
+ * allowlisted numeric diagnostics (HTTP status 100-599, Meta error.code and
+ * error_subcode). No response body text, message, URL or token is carried.
+ */
+function providerRejectionError(
+  status: number,
+  body: string,
+  message: string,
+): ThreadsOAuthProviderError {
+  const safeStatus = safeHttpStatus(status);
+  return new ThreadsOAuthProviderError(
+    providerErrorKind(body) ?? mapProviderErrorStatus(status),
+    message,
+    {
+      ...(safeStatus !== undefined ? { status: safeStatus } : {}),
+      ...(providerErrorDiagnostics(body) ?? {}),
+    },
+  );
 }
 
 function requireString(value: unknown): string | undefined {
@@ -239,8 +294,9 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
       body: form.toString(),
     });
     if (res.status !== 200) {
-      throw new ThreadsOAuthProviderError(
-        providerErrorKind(res.body) ?? mapProviderErrorStatus(res.status),
+      throw providerRejectionError(
+        res.status,
+        res.body,
         'provider rejected the authorization code exchange',
       );
     }
@@ -293,8 +349,9 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
       headers: { authorization: `Bearer ${token}` },
     });
     if (res.status !== 200) {
-      throw new ThreadsOAuthProviderError(
-        providerErrorKind(res.body) ?? mapProviderErrorStatus(res.status),
+      throw providerRejectionError(
+        res.status,
+        res.body,
         'provider rejected the token exchange',
       );
     }
@@ -334,8 +391,9 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     if (res.status !== 200) {
-      throw new ThreadsOAuthProviderError(
-        providerErrorKind(res.body) ?? mapProviderErrorStatus(res.status),
+      throw providerRejectionError(
+        res.status,
+        res.body,
         'provider rejected the identity request',
       );
     }

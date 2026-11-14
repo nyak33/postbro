@@ -100,6 +100,100 @@ test('exchangeCode fails closed on provider 400 error envelope', async () => {
   );
 });
 
+test('400 error envelope carries only safe numeric diagnostics, never the message', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 400,
+    body: JSON.stringify({
+      error: {
+        message: 'SECRET_SENTINEL message text',
+        type: 'OAuthException',
+        code: 100,
+        error_subcode: 2345678,
+        fbtrace_id: 'SECRET_TRACE_ID',
+      },
+    }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerStatus, 400);
+      assert.equal(e.providerErrorCode, 100);
+      assert.equal(e.providerErrorSubcode, 2345678);
+      // No string/body/message/trace leakage anywhere on the error.
+      const serialized = JSON.stringify(e);
+      assert.equal(serialized.includes('SECRET_SENTINEL'), false);
+      assert.equal(serialized.includes('SECRET_TRACE_ID'), false);
+      assert.equal(e.message.includes('SECRET_SENTINEL'), false);
+      return true;
+    },
+  );
+});
+
+test('numeric diagnostics: code 190 maps token_expired and keeps numeric subcode', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 400,
+    body: JSON.stringify({
+      error: { message: 'expired SECRET_SENTINEL', type: 'OAuthException', code: 190, error_subcode: 463 },
+    }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeLongLived('short'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.kind, 'token_expired');
+      assert.equal(e.providerStatus, 400);
+      assert.equal(e.providerErrorCode, 190);
+      assert.equal(e.providerErrorSubcode, 463);
+      assert.equal(JSON.stringify(e).includes('SECRET_SENTINEL'), false);
+      return true;
+    },
+  );
+});
+
+test('numeric diagnostics: malformed string code/subcode values are dropped', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 400,
+    body: JSON.stringify({
+      error: {
+        message: 'SECRET_SENTINEL',
+        type: 'OAuthException',
+        code: '100-STRING',
+        error_subcode: 'SUBCODE-STRING',
+      },
+    }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerStatus, 400);
+      assert.equal(e.providerErrorCode, undefined);
+      assert.equal(e.providerErrorSubcode, undefined);
+      return true;
+    },
+  );
+});
+
+test('numeric diagnostics: out-of-range HTTP status and negative codes dropped', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 99,
+    body: JSON.stringify({
+      error: { message: 'x', type: 'OAuthException', code: -5, error_subcode: 1.5 },
+    }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerStatus, undefined);
+      assert.equal(e.providerErrorCode, undefined);
+      assert.equal(e.providerErrorSubcode, undefined);
+      return true;
+    },
+  );
+});
+
 test('exchangeCode fails closed on malformed JSON and missing fields', async () => {
   for (const body of ['not-json', '{"access_token":"tok"}', '{"user_id":"1"}', '[]', '"str"']) {
     const { transport } = transportReturning(() => ({ status: 200, body }));

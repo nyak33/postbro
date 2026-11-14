@@ -163,7 +163,19 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
         // kind enum. NEVER log provider messages, response bodies, request
         // URLs, codes, state, tokens or secrets here.
         request.log.warn(
-          { stage, providerErrorKind: error.kind },
+          {
+            stage,
+            providerErrorKind: error.kind,
+            ...(error.providerStatus !== undefined
+              ? { providerStatus: error.providerStatus }
+              : {}),
+            ...(error.providerErrorCode !== undefined
+              ? { providerErrorCode: error.providerErrorCode }
+              : {}),
+            ...(error.providerErrorSubcode !== undefined
+              ? { providerErrorSubcode: error.providerErrorSubcode }
+              : {}),
+          },
           'threads oauth provider exchange failed',
         );
         return reply.code(502).send({ error: 'provider_exchange_failed' });
