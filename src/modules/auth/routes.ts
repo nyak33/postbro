@@ -129,10 +129,15 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
 
     // Provider sequence (mock in tests; no network here). Token material
     // stays in memory and is handed to persistence, which encrypts it.
+    // `stage` tracks the current step for SANITIZED failure logging only;
+    // it never carries tokens, codes, URLs or provider payloads.
+    let stage: 'exchangeCode' | 'exchangeLongLived' | 'getMe' | 'persist' = 'exchangeCode';
     let persisted;
     try {
       const shortLived = await deps.oauthClient.exchangeCode(code);
+      stage = 'exchangeLongLived';
       const longLived = await deps.oauthClient.exchangeLongLived(shortLived.accessToken);
+      stage = 'getMe';
       const identity = await deps.oauthClient.getMe(longLived.accessToken);
       if (identity.id !== shortLived.userId) {
         return reply.code(502).send({ error: 'identity_mismatch' });
@@ -141,6 +146,7 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
       // evidence; requested scopes are never inferred as granted.
       const scopes = await deps.oauthClient.getGrantedScopes(longLived.accessToken);
 
+      stage = 'persist';
       persisted = await persistOAuthCompletion(deps.pool, {
         operatorId,
         exchangeUserId: shortLived.userId,
@@ -153,9 +159,20 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
       });
     } catch (error) {
       if (error instanceof ThreadsOAuthProviderError) {
+        // SANITIZED diagnostics only: fixed stage label + allowlisted error
+        // kind enum. NEVER log provider messages, response bodies, request
+        // URLs, codes, state, tokens or secrets here.
+        request.log.warn(
+          { stage, providerErrorKind: error.kind },
+          'threads oauth provider exchange failed',
+        );
         return reply.code(502).send({ error: 'provider_exchange_failed' });
       }
       if (error instanceof PersistOAuthCompletionError) {
+        request.log.warn(
+          { stage: 'persist', persistFailureReason: error.reason },
+          'threads oauth persistence failed',
+        );
         // Fail closed with no row changes (the persistence transaction
         // already rolled back) and a safe, non-misleading error.
         if (error.reason === 'provider_owned_by_other_operator') {
