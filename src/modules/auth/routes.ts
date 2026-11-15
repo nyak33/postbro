@@ -140,10 +140,11 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
       stage = 'getMe';
       const identity = await deps.oauthClient.getMe(longLived.accessToken);
       // Cross-check the immutable account id ONLY when the token exchange
-      // supplied one. When the exchange omitted user_id (tolerated by the
-      // experimental postiz transport only), the authenticated /me id is
-      // the sole authoritative provider id; it is never copied back into
-      // the exchange slot (provenance is preserved end-to-end).
+      // supplied one. When the exchange returned no trustworthy user_id
+      // (absent, or present-but-unusable — tolerated by the experimental
+      // postiz transport only), the authenticated /me id is the sole
+      // authoritative provider id; it is never copied back into the
+      // exchange slot (provenance is preserved end-to-end).
       if (shortLived.userId !== undefined && identity.id !== shortLived.userId) {
         return reply.code(502).send({ error: 'identity_mismatch' });
       }
