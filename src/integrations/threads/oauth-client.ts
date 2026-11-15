@@ -115,7 +115,9 @@ export type ThreadsOAuthProviderFailureReason =
   | 'body_too_large'
   | 'timeout'
   | 'malformed_response'
-  | 'missing_fields';
+  | 'missing_fields'
+  | 'missing_access_token'
+  | 'missing_user_id';
 
 export class ThreadsOAuthProviderError extends Error {
   readonly kind: ThreadsOAuthErrorKind;
