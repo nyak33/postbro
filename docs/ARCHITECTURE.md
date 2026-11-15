@@ -1,6 +1,6 @@
 # PostBro — Technical Architecture (proposed implementation design)
 
-**Status:** Design guidance / not runtime evidence. **Authority:** `PRD.md`. Validate API and product decisions before implementing them. Last prepared: 2026-10-21.
+**Status:** Design guidance / not runtime evidence. **Authority:** `PRD.md`. Validate API and product decisions before implementing them. Last prepared: 2026-10-21. **Repository strategy (accepted 2026-11-15):** PostBro becomes ONE modular npm-workspaces monorepo per [docs/decisions/ADR-001-modular-postbro-monorepo.md](decisions/ADR-001-modular-postbro-monorepo.md); Postiz remains a separate product. No code moves until the ADR's phased gates are met — the `src/` layout below remains the runtime reality until then.
 
 ## Product boundary
 
