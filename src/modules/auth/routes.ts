@@ -139,7 +139,12 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
       const longLived = await deps.oauthClient.exchangeLongLived(shortLived.accessToken);
       stage = 'getMe';
       const identity = await deps.oauthClient.getMe(longLived.accessToken);
-      if (identity.id !== shortLived.userId) {
+      // Cross-check the immutable account id ONLY when the token exchange
+      // supplied one. When the exchange omitted user_id (tolerated by the
+      // experimental postiz transport only), the authenticated /me id is
+      // the sole authoritative provider id; it is never copied back into
+      // the exchange slot (provenance is preserved end-to-end).
+      if (shortLived.userId !== undefined && identity.id !== shortLived.userId) {
         return reply.code(502).send({ error: 'identity_mismatch' });
       }
       // Granted scopes are trusted ONLY from positively verified provider
@@ -149,7 +154,7 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
       stage = 'persist';
       persisted = await persistOAuthCompletion(deps.pool, {
         operatorId,
-        exchangeUserId: shortLived.userId,
+        ...(shortLived.userId !== undefined ? { exchangeUserId: shortLived.userId } : {}),
         identityUserId: identity.id,
         username: identity.username,
         longLivedToken: longLived.accessToken,

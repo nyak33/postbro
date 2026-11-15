@@ -63,8 +63,18 @@ export function buildAuthorizeUrl(config: ThreadsOAuthConfig, params: AuthorizeU
 export interface ShortLivedTokenResult {
   accessToken: string;
   tokenType?: string;
-  /** Immutable Meta/Threads user id from the token exchange. */
-  userId: string;
+  /**
+   * Immutable Meta/Threads user id from the token exchange, when the
+   * provider included one. Per Meta's official docs/Postman spec the
+   * exchange response carries user_id and the standard transport FAILS
+   * CLOSED when it is absent. The experimental 'postiz' transport mode
+   * tolerates an ABSENT user_id (observed live: HTTP 200 with access_token
+   * only) — in that case `userId` is undefined and the caller MUST obtain
+   * the immutable account id from an authenticated GET /me instead. A
+   * user_id that is present but empty/invalid still fails closed in every
+   * mode, and a present user_id must still match GET /me exactly.
+   */
+  userId?: string;
 }
 
 /** Response of the short-lived -> long-lived token exchange / refresh. */
@@ -77,7 +87,12 @@ export interface LongLivedTokenResult {
 
 /** Identity evidence from the provider (GET /me). */
 export interface ThreadsIdentity {
-  /** Immutable Threads user id; must match the token-exchange user_id. */
+  /**
+   * Immutable Threads user id. When the token exchange returned a user_id,
+   * this must match it exactly; when the exchange omitted user_id
+   * (experimental postiz mode only), this is the sole authoritative
+   * provider id.
+   */
   id: string;
   username?: string;
 }
@@ -117,7 +132,8 @@ export type ThreadsOAuthProviderFailureReason =
   | 'malformed_response'
   | 'missing_fields'
   | 'missing_access_token'
-  | 'missing_user_id';
+  | 'missing_user_id'
+  | 'invalid_user_id';
 
 export class ThreadsOAuthProviderError extends Error {
   readonly kind: ThreadsOAuthErrorKind;

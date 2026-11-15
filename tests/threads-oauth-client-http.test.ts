@@ -636,3 +636,86 @@ test('standard mode (explicit) matches default behavior', async () => {
   await client.exchangeCode('code');
   assert.equal(calls[0]!.method, 'POST');
 });
+
+// --- postiz exchange user_id optionality (live-observed token-only 200) ---
+
+test('postiz mode: exchangeCode tolerates ABSENT user_id, returns undefined userId', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'tok' }),
+  }));
+  const result = await makePostizClient(transport).exchangeCode('code');
+  assert.equal(result.accessToken, 'tok');
+  assert.equal(result.userId, undefined);
+  assert.equal('userId' in result, false, 'absent user_id must not materialize a key');
+});
+
+test('standard mode: ABSENT user_id still fails closed with missing_user_id', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'tok' }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerFailureReason, 'missing_user_id');
+      return true;
+    },
+  );
+});
+
+test('PRESENT but invalid user_id fails closed in BOTH modes with invalid_user_id', async () => {
+  const invalidBodies = [
+    JSON.stringify({ access_token: 'tok', user_id: '' }),
+    JSON.stringify({ access_token: 'tok', user_id: 1.5 }),
+    JSON.stringify({ access_token: 'tok', user_id: true }),
+    JSON.stringify({ access_token: 'tok', user_id: {} }),
+  ];
+  for (const body of invalidBodies) {
+    for (const make of [makeClient, makePostizClient]) {
+      const { transport } = transportReturning(() => ({ status: 200, body }));
+      await assert.rejects(
+        () => make(transport).exchangeCode('code'),
+        (e: unknown) => {
+          assert.ok(e instanceof ThreadsOAuthProviderError);
+          assert.equal(e.providerFailureReason, 'invalid_user_id');
+          return true;
+        },
+      );
+    }
+  }
+});
+
+test('explicit user_id null is PRESENT-malformed: rejects invalid_user_id in BOTH modes', async () => {
+  // JSON can carry null (unlike undefined); an explicitly present null is
+  // not an omission and must never be tolerated.
+  const body = JSON.stringify({ access_token: 'tok', user_id: null });
+  for (const make of [makeClient, makePostizClient]) {
+    const { transport } = transportReturning(() => ({ status: 200, body }));
+    await assert.rejects(
+      () => make(transport).exchangeCode('code'),
+      (e: unknown) => {
+        assert.ok(e instanceof ThreadsOAuthProviderError);
+        assert.equal(e.providerFailureReason, 'invalid_user_id');
+        return true;
+      },
+    );
+  }
+});
+
+test('postiz mode: present valid string/numeric user_id still returned', async () => {
+  const { transport: numTransport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'tok', user_id: 42 }),
+  }));
+  const numResult = await makePostizClient(numTransport).exchangeCode('code');
+  assert.equal(numResult.userId, '42');
+
+  const { transport: strTransport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'tok', user_id: '99' }),
+  }));
+  const strResult = await makePostizClient(strTransport).exchangeCode('code');
+  assert.equal(strResult.userId, '99');
+});

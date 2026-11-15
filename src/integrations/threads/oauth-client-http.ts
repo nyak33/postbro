@@ -280,12 +280,22 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
    * collection), ALL parameters — client_id, client_secret, code,
    * grant_type, redirect_uri — travel in the URL QUERY STRING; the request
    * carries NO body. The request URL therefore contains the app secret and
-   * the authorization code: request URLs and raw HTTP diagnostics for this
+   * and the authorization code: request URLs and raw HTTP diagnostics for this
    * call must NEVER be logged, and proxy/tracing layers must keep this path
    * redacted (same threat model as the long-lived exchange URL). Response
-   * must be a JSON object with non-empty string access_token and
-   * string/numeric user_id; anything else (including an error envelope or
-   * malformed JSON) fails closed.
+   * must be a JSON object with a non-empty string access_token; anything
+   * else (including an error envelope or malformed JSON) fails closed.
+   *
+   * user_id handling: per Meta's official docs/Postman spec the exchange
+   * response includes user_id, and the STANDARD transport fails closed when
+   * it is absent (missing_user_id). The experimental POSTIZ transport
+   * tolerates an ABSENT user_id (observed live: HTTP 200 with access_token
+   * and no user_id; Postiz's threads.provider.ts likewise ignores the
+   * exchange user_id and identifies the account via GET /me) and returns
+   * `userId: undefined` — the caller must then source the immutable account
+   * id from an authenticated GET /me. A user_id that is PRESENT but not a
+   * non-empty string / safe integer fails closed in every mode
+   * (invalid_user_id), and a present user_id must still match GET /me.
    */
   async exchangeCode(code: string): Promise<ShortLivedTokenResult> {
     if (typeof code !== 'string' || code.length === 0) {
@@ -321,18 +331,38 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
       });
     }
     const accessToken = requireString(parsed['access_token']);
-    const userId = requireStringOrNumber(parsed['user_id']);
     if (!accessToken) {
       throw new ThreadsOAuthProviderError('unknown', 'provider response missing access_token', {
         failureReason: 'missing_access_token',
       });
     }
-    if (!userId) {
+    // Presence is determined by the property itself, not its value: an
+    // explicitly present user_id (including JSON null, which JSON CAN
+    // carry — undefined cannot) that fails validation is PRESENT-but-
+    // malformed and fails closed in EVERY transport mode. Only a truly
+    // omitted property may be tolerated (postiz mode only, below).
+    const userIdPresent = Object.hasOwn(parsed, 'user_id');
+    const userId = requireStringOrNumber(parsed['user_id']);
+    if (userIdPresent && userId === undefined) {
+      throw new ThreadsOAuthProviderError('unknown', 'provider response user_id is invalid', {
+        failureReason: 'invalid_user_id',
+      });
+    }
+    // An ABSENT user_id is only tolerated by the experimental postiz
+    // transport (Postiz ignores the exchange user_id and identifies the
+    // account via GET /me; the live provider was observed returning HTTP
+    // 200 with access_token only in this mode). Standard mode follows
+    // Meta's documented response shape strictly and fails closed.
+    if (userId === undefined && !postiz) {
       throw new ThreadsOAuthProviderError('unknown', 'provider response missing user_id', {
         failureReason: 'missing_user_id',
       });
     }
-    return { accessToken, userId, tokenType: 'bearer' };
+    return {
+      accessToken,
+      ...(userId !== undefined ? { userId } : {}),
+      tokenType: 'bearer',
+    };
   }
 
   /**
