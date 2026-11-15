@@ -336,11 +336,14 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
         failureReason: 'missing_access_token',
       });
     }
-    const rawUserId = parsed['user_id'];
-    const userId = requireStringOrNumber(rawUserId);
-    // A PRESENT but unusable user_id (empty string, wrong type, non-safe
-    // number) fails closed in every transport mode.
-    if (rawUserId !== undefined && rawUserId !== null && userId === undefined) {
+    // Presence is determined by the property itself, not its value: an
+    // explicitly present user_id (including JSON null, which JSON CAN
+    // carry — undefined cannot) that fails validation is PRESENT-but-
+    // malformed and fails closed in EVERY transport mode. Only a truly
+    // omitted property may be tolerated (postiz mode only, below).
+    const userIdPresent = Object.hasOwn(parsed, 'user_id');
+    const userId = requireStringOrNumber(parsed['user_id']);
+    if (userIdPresent && userId === undefined) {
       throw new ThreadsOAuthProviderError('unknown', 'provider response user_id is invalid', {
         failureReason: 'invalid_user_id',
       });
