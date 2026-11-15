@@ -212,12 +212,76 @@ test('provider failure warn includes ONLY safe numeric diagnostics (status/code/
   const allowedKeys = new Set([
     'level', 'time', 'pid', 'hostname', 'msg',
     'stage', 'providerErrorKind', 'providerStatus', 'providerErrorCode', 'providerErrorSubcode',
+    'providerFailureReason',
     'reqId', 'req', 'res', 'responseTime',
   ]);
   for (const key of Object.keys(warn)) {
     assert.ok(allowedKeys.has(key), `unexpected log field: ${key}`);
   }
   // No mock message, sentinel code, tokens or secrets anywhere in logs.
+  const all = sink.all();
+  assert.ok(!all.includes('mock provider exchange failure'));
+  assert.ok(!all.includes(FAKE_CODE));
+  assert.ok(!all.includes('mock-short-lived-token'));
+  assert.ok(!all.includes(OAUTH_CONFIG.appSecret));
+  assert.ok(!all.includes(SIGNING_SECRET));
+});
+
+test('provider failure warn includes categorical failureReason enum only', async () => {
+  const sink = new LogSink();
+  const oauthClient = new MockThreadsOAuthClient({
+    config: OAUTH_CONFIG,
+    failExchangeCode: 'unknown',
+    failExchangeCodeDiagnostics: { failureReason: 'redirect' },
+  });
+  const app = buildApp({
+    logger: { level: 'info', stream: sink },
+    threadsAuth: {
+      pool: appPool,
+      signingSecret: SIGNING_SECRET,
+      oauthClient,
+      tokenEncryptionKey: ENCRYPTION_KEY,
+    },
+  });
+  try {
+    const operatorId = await createOperator(930003);
+    const minted = await mintLinkToken(appPool, { operatorId, signingSecret: SIGNING_SECRET });
+    const start = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/start?link=${encodeURIComponent(minted.token)}`,
+    });
+    assert.equal(start.statusCode, 302);
+    const state = new URL(start.headers.location as string).searchParams.get('state');
+    assert.ok(state);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state!)}&code=${FAKE_CODE}`,
+    });
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.json(), { error: 'provider_exchange_failed' });
+    await new Promise((r) => setTimeout(r, 50));
+  } finally {
+    await app.close();
+  }
+  const warns = sink.parsed().filter((e) => e['level'] === 40);
+  assert.equal(warns.length, 1, 'exactly one sanitized warn expected');
+  const warn = warns[0]!;
+  assert.equal(warn['stage'], 'exchangeCode');
+  assert.equal(warn['providerErrorKind'], 'unknown');
+  assert.equal(warn['providerFailureReason'], 'redirect');
+  assert.equal(warn['providerStatus'], undefined);
+  assert.equal(warn['providerErrorCode'], undefined);
+  // Allowlisted fields only on the warn entry (plus pino's own keys).
+  const allowedKeys = new Set([
+    'level', 'time', 'pid', 'hostname', 'msg',
+    'stage', 'providerErrorKind', 'providerStatus', 'providerErrorCode', 'providerErrorSubcode',
+    'providerFailureReason',
+    'reqId', 'req', 'res', 'responseTime',
+  ]);
+  for (const key of Object.keys(warn)) {
+    assert.ok(allowedKeys.has(key), `unexpected log field: ${key}`);
+  }
   const all = sink.all();
   assert.ok(!all.includes('mock provider exchange failure'));
   assert.ok(!all.includes(FAKE_CODE));

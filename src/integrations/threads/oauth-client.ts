@@ -103,6 +103,20 @@ export type ThreadsOAuthErrorKind =
   | 'permission_denied'
   | 'unknown';
 
+/**
+ * NON-SECRET categorical failure reason for sanitized logging: a fixed enum
+ * describing WHERE the provider exchange failed when no numeric diagnostics
+ * exist. Transport reasons come from ThreadsHttpTransportError; response
+ * shape reasons from the 200-response validation. Never free text.
+ */
+export type ThreadsOAuthProviderFailureReason =
+  | 'network'
+  | 'redirect'
+  | 'body_too_large'
+  | 'timeout'
+  | 'malformed_response'
+  | 'missing_fields';
+
 export class ThreadsOAuthProviderError extends Error {
   readonly kind: ThreadsOAuthErrorKind;
   /**
@@ -114,11 +128,17 @@ export class ThreadsOAuthProviderError extends Error {
   readonly providerStatus?: number;
   readonly providerErrorCode?: number;
   readonly providerErrorSubcode?: number;
+  readonly providerFailureReason?: ThreadsOAuthProviderFailureReason;
 
   constructor(
     kind: ThreadsOAuthErrorKind,
     message: string,
-    diagnostics?: { status?: number; errorCode?: number; errorSubcode?: number },
+    diagnostics?: {
+      status?: number;
+      errorCode?: number;
+      errorSubcode?: number;
+      failureReason?: ThreadsOAuthProviderFailureReason;
+    },
   ) {
     super(message);
     this.name = 'ThreadsOAuthProviderError';
@@ -127,6 +147,9 @@ export class ThreadsOAuthProviderError extends Error {
     if (diagnostics?.errorCode !== undefined) this.providerErrorCode = diagnostics.errorCode;
     if (diagnostics?.errorSubcode !== undefined) {
       this.providerErrorSubcode = diagnostics.errorSubcode;
+    }
+    if (diagnostics?.failureReason !== undefined) {
+      this.providerFailureReason = diagnostics.failureReason;
     }
   }
 }
@@ -159,7 +182,12 @@ export interface MockThreadsOAuthClientOptions {
    * Optional NON-SECRET numeric diagnostics attached to the failExchangeCode
    * rejection (exercises the sanitized provider-diagnostics logging path).
    */
-  failExchangeCodeDiagnostics?: { status?: number; errorCode?: number; errorSubcode?: number };
+  failExchangeCodeDiagnostics?: {
+    status?: number;
+    errorCode?: number;
+    errorSubcode?: number;
+    failureReason?: ThreadsOAuthProviderFailureReason;
+  };
 }
 
 /**
@@ -177,7 +205,12 @@ export class MockThreadsOAuthClient implements ThreadsOAuthClient {
   private readonly grantedScopes: GrantedScopesEvidence;
   private readonly failExchangeCode: ThreadsOAuthErrorKind | undefined;
   private readonly failExchangeCodeDiagnostics:
-    | { status?: number; errorCode?: number; errorSubcode?: number }
+    | {
+        status?: number;
+        errorCode?: number;
+        errorSubcode?: number;
+        failureReason?: ThreadsOAuthProviderFailureReason;
+      }
     | undefined;
 
   constructor(options: MockThreadsOAuthClientOptions) {

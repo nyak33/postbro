@@ -8,7 +8,10 @@ import {
   type HttpTransport,
   type HttpTransportRequest,
 } from '../src/integrations/threads/oauth-client-http';
-import { ThreadsOAuthProviderError } from '../src/integrations/threads/oauth-client';
+import {
+  ThreadsOAuthProviderError,
+  type ThreadsOAuthErrorKind,
+} from '../src/integrations/threads/oauth-client';
 import type { ThreadsOAuthConfig } from '../src/config';
 
 /** Fixed dummy config — non-real, test-only. */
@@ -301,6 +304,94 @@ test('transport network failure maps to provider_unavailable and leaks nothing',
       assert.equal(e.kind, 'provider_unavailable');
       assert.equal(e.message.includes('token=abc'), false);
       assert.equal(e.message.includes('client_secret'), false);
+      return true;
+    },
+  );
+});
+
+test('transport categories: network/redirect/body_too_large carry safe failureReason', async () => {
+  const cases: Array<['network' | 'redirect' | 'body_too_large', ThreadsOAuthErrorKind]> = [
+    ['network', 'unknown'],
+    ['redirect', 'unknown'],
+    ['body_too_large', 'unknown'],
+  ];
+  for (const [reason, expectedKind] of cases) {
+    const failing: HttpTransport = () =>
+      Promise.reject(new ThreadsHttpTransportError(reason, 'sanitized transport failure'));
+    await assert.rejects(
+      () => makeClient(failing).exchangeCode('code'),
+      (e: unknown) => {
+        assert.ok(e instanceof ThreadsOAuthProviderError);
+        assert.equal(e.kind, expectedKind);
+        assert.equal(e.providerFailureReason, reason);
+        assert.equal(e.providerStatus, undefined);
+        assert.equal(e.providerErrorCode, undefined);
+        // No free-text transport detail leaks anywhere.
+        assert.equal(JSON.stringify(e).includes('sanitized transport failure'), false);
+        return true;
+      },
+    );
+  }
+});
+
+test('transport categories: timeout stays provider_unavailable with failureReason', async () => {
+  const failing: HttpTransport = () =>
+    Promise.reject(new ThreadsHttpTransportError('timeout', 'timed out'));
+  await assert.rejects(
+    () => makeClient(failing).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.kind, 'provider_unavailable');
+      assert.equal(e.providerFailureReason, 'timeout');
+      assert.equal(e.providerStatus, undefined);
+      return true;
+    },
+  );
+});
+
+test('HTTP 200 with malformed body categorizes as malformed_response', async () => {
+  const { transport } = transportReturning(() => ({ status: 200, body: '<html>SECRET_SENTINEL</html>' }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.kind, 'unknown');
+      assert.equal(e.providerFailureReason, 'malformed_response');
+      assert.equal(e.providerStatus, undefined);
+      assert.equal(JSON.stringify(e).includes('SECRET_SENTINEL'), false);
+      return true;
+    },
+  );
+});
+
+test('HTTP 200 JSON missing token fields categorizes as missing_fields', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ error: { message: 'SECRET_SENTINEL', code: 100 } }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.kind, 'unknown');
+      assert.equal(e.providerFailureReason, 'missing_fields');
+      assert.equal(e.providerStatus, undefined);
+      assert.equal(JSON.stringify(e).includes('SECRET_SENTINEL'), false);
+      return true;
+    },
+  );
+});
+
+test('getMe HTTP 200 missing id categorizes as missing_fields', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ username: 'only-username' }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).getMe('tok'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerFailureReason, 'missing_fields');
       return true;
     },
   );
