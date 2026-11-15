@@ -1,6 +1,6 @@
 # PostBro — Implementation Plan and Task Map
 
-**Status:** Proposed task decomposition under approved `PRD.md` v0.1.0. Sequencing is binding as defined by PRD section 9 unless the owner approves a scope/priority amendment. Prepared 2026-10-21. No runtime milestone is marked complete merely because this document exists.
+**Status:** Proposed task decomposition under approved `PRD.md` v0.1.0. Sequencing is binding as defined by PRD section 9 unless the owner approves a scope/priority amendment. Prepared 2026-10-21. No runtime milestone is marked complete merely because this document exists. **Monorepo adoption (accepted 2026-11-15):** migration of this layout into an npm-workspaces monorepo is governed by [docs/decisions/ADR-001-modular-postbro-monorepo.md](decisions/ADR-001-modular-postbro-monorepo.md); the task slices below still apply and map onto the ADR's phases 0–5.
 
 ## First-use target
 

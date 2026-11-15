@@ -2,7 +2,7 @@
 
 Threads-only **engagement automation** backend. Postiz owns publishing and scheduling; PostBro consumes the separate Persona Engine and Reply Decision Engine for safe inbound engagement.
 
-> **Project stage:** P0 foundation in progress. A minimal TypeScript/Fastify API scaffold, `GET /health`, configuration validation, six unit tests and GitHub Actions CI are implemented. Meta Threads OAuth, the PostBro product Telegram bot, Supabase and engagement automation are **not implemented or verified** yet.
+> **Project stage:** P0 foundation in progress. A minimal TypeScript/Fastify API scaffold, `GET /health`, configuration validation, unit tests, GitHub Actions CI and the server-side Threads OAuth start/callback implementation are in place. On 2026-11-15 a live user OAuth callback completed with `status=connected, accountId=1, operatorId=1, scopesVerified=false, grantedScopes=[]` — OAuth connectivity is observed, but granted scopes and engagement capability are NOT yet positively verified and are not claimed. The PostBro product Telegram bot, persona binding, hosted Supabase runtime and engagement automation remain unverified.
 
 ## Source of truth
 
