@@ -4,8 +4,10 @@
  *
  * Implements the official Meta Threads OAuth endpoints ONLY:
  * - POST https://graph.threads.net/oauth/access_token
- *     (authorization_code -> short-lived token; client_id, client_secret,
- *      code, grant_type=authorization_code, identical redirect_uri)
+ *     (authorization_code -> short-lived token; per Meta's official docs/
+ *      Postman spec ALL five parameters — client_id, client_secret, code,
+ *      grant_type=authorization_code, identical redirect_uri — travel in the
+ *      URL QUERY STRING; the request carries NO body)
  * - GET  https://graph.threads.net/access_token
  *     (grant_type=th_exchange_token -> long-lived token;
  *      grant_type=th_refresh_token -> refreshed long-lived token)
@@ -21,10 +23,13 @@
  *   supports it (Bearer on /me and the long-lived token GETs), never as
  *   access_token URL parameters.
  * - client_secret placement differs by endpoint per Meta's official docs:
- *   the short-lived exchange (POST /oauth/access_token) carries it ONLY in
- *   the form-encoded body, never in the URL; the long-lived/refresh
- *   endpoint (GET /access_token) REQUIRES it as a URL query parameter —
- *   that is Meta's documented contract and must not be "fixed" to POST.
+ *   the short-lived exchange (POST /oauth/access_token) carries it in the
+ *   URL QUERY STRING (Meta's documented parameter placement for this
+ *   endpoint; the request has no body); the long-lived/refresh endpoint
+ *   (GET /access_token) REQUIRES it as a URL query parameter — that is
+ *   Meta's documented contract and must not be "fixed" to a body POST.
+ *   Threat model: BOTH token-exchange URLs now carry the app secret (and
+ *   the short-lived exchange URL also carries the authorization code).
  *   Because query strings can leak via HTTP access logs, proxies, tracing
  *   and crash reporters, NOTHING in this client (or its callers) may log
  *   full request URLs or raw HTTP diagnostics; reverse-proxy/tracing for
@@ -271,27 +276,31 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
 
   /**
    * POST https://graph.threads.net/oauth/access_token
-   * Form-encoded body per official Meta docs. client_secret travels ONLY in
-   * this POST body, never in any URL. Response must be a JSON object with
-   * non-empty string access_token and string/numeric user_id; anything else
-   * (including an error envelope or malformed JSON) fails closed.
+   * Per Meta's official docs (and the official Meta Postman Threads API
+   * collection), ALL parameters — client_id, client_secret, code,
+   * grant_type, redirect_uri — travel in the URL QUERY STRING; the request
+   * carries NO body. The request URL therefore contains the app secret and
+   * the authorization code: request URLs and raw HTTP diagnostics for this
+   * call must NEVER be logged, and proxy/tracing layers must keep this path
+   * redacted (same threat model as the long-lived exchange URL). Response
+   * must be a JSON object with non-empty string access_token and
+   * string/numeric user_id; anything else (including an error envelope or
+   * malformed JSON) fails closed.
    */
   async exchangeCode(code: string): Promise<ShortLivedTokenResult> {
     if (typeof code !== 'string' || code.length === 0) {
       throw new ThreadsOAuthProviderError('invalid_code', 'authorization code must be non-empty');
     }
-    const form = new URLSearchParams({
-      client_id: this.config.appId,
-      client_secret: this.config.appSecret,
-      code,
-      grant_type: 'authorization_code',
-      redirect_uri: this.config.redirectUri,
-    });
+    const url = new URL(`${THREADS_GRAPH_ORIGIN}/oauth/access_token`);
+    url.searchParams.set('client_id', this.config.appId);
+    url.searchParams.set('client_secret', this.config.appSecret);
+    url.searchParams.set('code', code);
+    url.searchParams.set('grant_type', 'authorization_code');
+    url.searchParams.set('redirect_uri', this.config.redirectUri);
     const res = await this.request({
       method: 'POST',
-      url: `${THREADS_GRAPH_ORIGIN}/oauth/access_token`,
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
+      url: url.toString(),
+      headers: {},
     });
     if (res.status !== 200) {
       throw providerRejectionError(
@@ -308,9 +317,14 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     }
     const accessToken = requireString(parsed['access_token']);
     const userId = requireStringOrNumber(parsed['user_id']);
-    if (!accessToken || !userId) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider response missing required fields', {
-        failureReason: 'missing_fields',
+    if (!accessToken) {
+      throw new ThreadsOAuthProviderError('unknown', 'provider response missing access_token', {
+        failureReason: 'missing_access_token',
+      });
+    }
+    if (!userId) {
+      throw new ThreadsOAuthProviderError('unknown', 'provider response missing user_id', {
+        failureReason: 'missing_user_id',
       });
     }
     return { accessToken, userId, tokenType: 'bearer' };
@@ -319,11 +333,11 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
   /**
    * GET https://graph.threads.net/access_token?grant_type=th_exchange_token&client_secret=...
    * Per Meta's documented contract, client_secret is REQUIRED here as a URL
-   * query parameter (unlike the POST short-lived exchange, where it travels
-   * only in the form body). The short-lived token itself is passed via the
-   * Authorization header. Because the URL contains the app secret, request
-   * URLs and raw HTTP diagnostics for this call must NEVER be logged, and
-   * proxy/tracing layers must keep this path redacted.
+   * query parameter (the POST short-lived exchange likewise carries all
+   * parameters in the URL query, not a body). The short-lived token itself
+   * is passed via the Authorization header. Because the URL contains the
+   * app secret, request URLs and raw HTTP diagnostics for this call must
+   * NEVER be logged, and proxy/tracing layers must keep this path redacted.
    */
   async exchangeLongLived(shortLivedToken: string): Promise<LongLivedTokenResult> {
     return this.getLongLived(shortLivedToken, 'th_exchange_token');

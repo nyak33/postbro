@@ -40,7 +40,7 @@ function makeClient(transport: HttpTransport): ThreadsHttpOAuthClient {
   return new ThreadsHttpOAuthClient({ config: CONFIG, transport });
 }
 
-test('exchangeCode POSTs the documented form to the fixed Graph host', async () => {
+test('exchangeCode POSTs to the fixed Graph host with all params in the URL query, no body', async () => {
   const { transport, calls } = transportReturning(() => ({
     status: 200,
     body: JSON.stringify({ access_token: 'short-token', user_id: '12345' }),
@@ -57,15 +57,39 @@ test('exchangeCode POSTs the documented form to the fixed Graph host', async () 
   const url = new URL(call.url);
   assert.equal(url.origin, THREADS_GRAPH_ORIGIN);
   assert.equal(url.pathname, '/oauth/access_token');
-  // Secret must be in the POST body, never in the URL.
-  assert.equal(call.url.includes(CONFIG.appSecret), false);
-  assert.ok(call.body);
-  const form = new URLSearchParams(call.body);
-  assert.equal(form.get('client_id'), CONFIG.appId);
-  assert.equal(form.get('client_secret'), CONFIG.appSecret);
-  assert.equal(form.get('code'), 'dummy-code');
-  assert.equal(form.get('grant_type'), 'authorization_code');
-  assert.equal(form.get('redirect_uri'), CONFIG.redirectUri);
+  // Per Meta's official docs/Postman spec, ALL five parameters travel in
+  // the URL query string and the request carries NO body.
+  assert.equal(url.searchParams.get('client_id'), CONFIG.appId);
+  assert.equal(url.searchParams.get('client_secret'), CONFIG.appSecret);
+  assert.equal(url.searchParams.get('code'), 'dummy-code');
+  assert.equal(url.searchParams.get('grant_type'), 'authorization_code');
+  assert.equal(url.searchParams.get('redirect_uri'), CONFIG.redirectUri);
+  assert.equal(call.body, undefined);
+  assert.equal(call.headers['content-type'], undefined);
+});
+
+test('exchangeCode: transport errors never expose the secret/code-bearing request URL', async () => {
+  // The exchange URL necessarily contains client_secret and the OAuth code
+  // (Meta's documented parameter placement); a transport failure carrying
+  // the URL (as a careless transport might) must be wrapped sanitized.
+  const secretUrlProbe: HttpTransport = (req) =>
+    Promise.reject(
+      new ThreadsHttpTransportError('redirect', `unexpected redirect for ${req.url}`),
+    );
+  await assert.rejects(
+    () => makeClient(secretUrlProbe).exchangeCode('SENSITIVE-CODE-SENTINEL'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      const serialized = JSON.stringify(e);
+      assert.equal(serialized.includes(CONFIG.appSecret), false);
+      assert.equal(serialized.includes('SENSITIVE-CODE-SENTINEL'), false);
+      assert.equal(serialized.includes('client_secret='), false);
+      assert.equal(serialized.includes('code='), false);
+      assert.equal(serialized.includes('graph.threads.net'), false);
+      assert.equal(e.providerFailureReason, 'redirect');
+      return true;
+    },
+  );
 });
 
 test('exchangeCode accepts numeric user_id', async () => {
@@ -203,6 +227,28 @@ test('exchangeCode fails closed on malformed JSON and missing fields', async () 
     await assert.rejects(
       () => makeClient(transport).exchangeCode('code'),
       (e: unknown) => e instanceof ThreadsOAuthProviderError && e.kind === 'unknown',
+    );
+  }
+});
+
+test('exchangeCode HTTP 200 distinguishes missing_access_token vs missing_user_id', async () => {
+  const cases: Array<{ body: string; expected: string }> = [
+    { body: JSON.stringify({ user_id: '1' }), expected: 'missing_access_token' },
+    { body: JSON.stringify({ access_token: 'tok' }), expected: 'missing_user_id' },
+    { body: JSON.stringify({ access_token: 5, user_id: '1' }), expected: 'missing_access_token' },
+    // Both missing -> first failure is access_token.
+    { body: JSON.stringify({}), expected: 'missing_access_token' },
+  ];
+  for (const { body, expected } of cases) {
+    const { transport } = transportReturning(() => ({ status: 200, body }));
+    await assert.rejects(
+      () => makeClient(transport).exchangeCode('code'),
+      (e: unknown) => {
+        assert.ok(e instanceof ThreadsOAuthProviderError);
+        assert.equal(e.kind, 'unknown');
+        assert.equal(e.providerFailureReason, expected);
+        return true;
+      },
     );
   }
 });
@@ -364,7 +410,7 @@ test('HTTP 200 with malformed body categorizes as malformed_response', async () 
   );
 });
 
-test('HTTP 200 JSON missing token fields categorizes as missing_fields', async () => {
+test('HTTP 200 JSON missing token fields categorizes as missing_access_token', async () => {
   const { transport } = transportReturning(() => ({
     status: 200,
     body: JSON.stringify({ error: { message: 'SECRET_SENTINEL', code: 100 } }),
@@ -374,7 +420,7 @@ test('HTTP 200 JSON missing token fields categorizes as missing_fields', async (
     (e: unknown) => {
       assert.ok(e instanceof ThreadsOAuthProviderError);
       assert.equal(e.kind, 'unknown');
-      assert.equal(e.providerFailureReason, 'missing_fields');
+      assert.equal(e.providerFailureReason, 'missing_access_token');
       assert.equal(e.providerStatus, undefined);
       assert.equal(JSON.stringify(e).includes('SECRET_SENTINEL'), false);
       return true;
