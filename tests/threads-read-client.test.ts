@@ -5,11 +5,17 @@ import {
   ME_THREADS_FIELDS,
   REPLY_FIELDS,
   THREADS_READ_DEFAULT_LIMIT,
+  THREADS_READ_MAX_BODY_BYTES,
   THREADS_READ_MAX_LIMIT,
+  THREADS_READ_MAX_TIMEOUT_MS,
+  THREADS_READ_MIN_BODY_BYTES,
+  THREADS_READ_MIN_TIMEOUT_MS,
   ThreadsReadClient,
 } from '../src/integrations/threads/threads-read-client';
 import {
   THREADS_GRAPH_ORIGIN,
+  THREADS_HTTP_MAX_BODY_BYTES,
+  THREADS_HTTP_TIMEOUT_MS,
   ThreadsHttpTransportError,
   type HttpTransport,
   type HttpTransportRequest,
@@ -235,12 +241,43 @@ test('non-array data field fails closed as malformed_response', async () => {
   );
 });
 
-test('empty results: data [] and missing data both yield empty page, no error', async () => {
-  for (const body of ['{"data":[]}', '{}']) {
+test('empty results: only explicit data [] is a valid empty page', async () => {
+  const { transport } = transportReturning(() => ({ status: 200, body: '{"data":[]}' }));
+  const page = await makeClient(transport).listOwnReplies('tok');
+  assert.deepEqual(page, { items: [], hasNextPage: false });
+});
+
+test('missing data property fails closed as malformed_response (never silent zero)', async () => {
+  for (const body of ['{}', '{"paging":{}}', '{"data":null}', '{"data":{}}', '{"data":"x"}']) {
     const { transport } = transportReturning(() => ({ status: 200, body }));
-    const page = await makeClient(transport).listOwnReplies('tok');
-    assert.deepEqual(page, { items: [], hasNextPage: false });
+    await assert.rejects(
+      () => makeClient(transport).listOwnReplies('tok'),
+      (e: unknown) => {
+        assert.ok(e instanceof ThreadsOAuthProviderError);
+        assert.equal(e.providerFailureReason, 'malformed_response');
+        return true;
+      },
+      body,
+    );
   }
+});
+
+test('HTTP 200 Meta-style error envelope fails closed, never silently empty, no leaks', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({
+      error: { message: 'SECRET_UNSUPPORTED_GET', type: 'OAuthException', code: 100, error_subcode: 33 },
+    }),
+  }));
+  await assert.rejects(
+    () => makeClient(transport).listOwnThreads('tok'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerFailureReason, 'malformed_response');
+      assert.equal(JSON.stringify(e).includes('SECRET_UNSUPPORTED_GET'), false);
+      return true;
+    },
+  );
 });
 
 test('entries without usable id are dropped; uncertain ownership stays undefined', async () => {
@@ -359,4 +396,27 @@ test('request bounds: timeout and body cap are passed to the transport', async (
   await new ThreadsReadClient({ transport, timeoutMs: 1234, maxBodyBytes: 4096 }).listOwnThreads('tok');
   assert.equal(calls[0]!.timeoutMs, 1234);
   assert.equal(calls[0]!.maxBodyBytes, 4096);
+});
+
+test('defaults unchanged: absent overrides use the shared fetch-transport bounds', async () => {
+  const { transport, calls } = transportReturning(() => ({ status: 200, body: '{"data":[]}' }));
+  await new ThreadsReadClient({ transport }).listOwnThreads('tok');
+  assert.equal(calls[0]!.timeoutMs, THREADS_HTTP_TIMEOUT_MS);
+  assert.equal(calls[0]!.maxBodyBytes, THREADS_HTTP_MAX_BODY_BYTES);
+});
+
+test('override bounds: out-of-range values clamped, invalid values fail closed to defaults', async () => {
+  const { transport, calls } = transportReturning(() => ({ status: 200, body: '{"data":[]}' }));
+  const cases: Array<[{ timeoutMs?: number; maxBodyBytes?: number }, number, number]> = [
+    [{ timeoutMs: 0, maxBodyBytes: 1 }, THREADS_READ_MIN_TIMEOUT_MS, THREADS_READ_MIN_BODY_BYTES],
+    [{ timeoutMs: 999_999, maxBodyBytes: 99_999_999 }, THREADS_READ_MAX_TIMEOUT_MS, THREADS_READ_MAX_BODY_BYTES],
+    [{ timeoutMs: Number.NaN, maxBodyBytes: Number.POSITIVE_INFINITY }, THREADS_HTTP_TIMEOUT_MS, THREADS_HTTP_MAX_BODY_BYTES],
+    [{ timeoutMs: 3_500.9, maxBodyBytes: 2_048.7 }, 3_500, 2_048],
+  ];
+  for (const [opts, timeoutMs, maxBodyBytes] of cases) {
+    calls.length = 0;
+    await new ThreadsReadClient({ transport, ...opts }).listOwnThreads('tok');
+    assert.equal(calls[0]!.timeoutMs, timeoutMs);
+    assert.equal(calls[0]!.maxBodyBytes, maxBodyBytes);
+  }
 });

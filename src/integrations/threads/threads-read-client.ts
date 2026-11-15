@@ -49,6 +49,12 @@ import {
 export const THREADS_READ_MAX_LIMIT = 100;
 export const THREADS_READ_DEFAULT_LIMIT = 25;
 
+/** Bounds for transport overrides; invalid values fail closed to defaults. */
+export const THREADS_READ_MIN_TIMEOUT_MS = 1_000;
+export const THREADS_READ_MAX_TIMEOUT_MS = 30_000;
+export const THREADS_READ_MIN_BODY_BYTES = 1024;
+export const THREADS_READ_MAX_BODY_BYTES = 1024 * 1024;
+
 /** Fields requested for own threads (GET /me/threads). */
 export const ME_THREADS_FIELDS = 'id,has_replies,timestamp,permalink';
 /**
@@ -117,8 +123,8 @@ export class ThreadsReadClient {
 
   constructor(options: ThreadsReadClientOptions = {}) {
     this.transport = options.transport ?? fetchHttpTransport;
-    this.timeoutMs = options.timeoutMs ?? THREADS_HTTP_TIMEOUT_MS;
-    this.maxBodyBytes = options.maxBodyBytes ?? THREADS_HTTP_MAX_BODY_BYTES;
+    this.timeoutMs = clampTimeoutMs(options.timeoutMs);
+    this.maxBodyBytes = clampMaxBodyBytes(options.maxBodyBytes);
   }
 
   /** GET /v1.0/me/threads — the caller-owned account's threads. */
@@ -192,10 +198,13 @@ export class ThreadsReadClient {
     return parsed;
   }
 
-  /** data must be an array; anything else fails closed as malformed. */
+  /**
+   * data must be a PRESENT array; a missing property or non-array value
+   * (including Meta-style HTTP-200 error envelopes) fails closed as
+   * malformed — zero replies is ONLY a valid explicit `data: []`.
+   */
   private parseDataArray(body: Record<string, unknown>): Record<string, unknown>[] {
     const data = body['data'];
-    if (data === undefined) return [];
     if (!Array.isArray(data)) {
       throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON', {
         failureReason: 'malformed_response',
@@ -248,6 +257,23 @@ function isSafeMediaId(value: string): boolean {
   // Meta media IDs are numeric strings; reject anything else before it
   // reaches a URL path (no traversal, no injection).
   return typeof value === 'string' && /^[0-9]{1,32}$/.test(value);
+}
+
+/**
+ * Bounded timeout override: absent or invalid (non-integer, non-finite)
+ * values fail closed to the shared default; valid values are clamped to
+ * [THREADS_READ_MIN_TIMEOUT_MS, THREADS_READ_MAX_TIMEOUT_MS] so a caller can
+ * never make provider reads unbounded.
+ */
+function clampTimeoutMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return THREADS_HTTP_TIMEOUT_MS;
+  return Math.min(Math.max(Math.floor(value), THREADS_READ_MIN_TIMEOUT_MS), THREADS_READ_MAX_TIMEOUT_MS);
+}
+
+/** Bounded body-cap override; same fail-closed/clamped policy as the timeout. */
+function clampMaxBodyBytes(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return THREADS_HTTP_MAX_BODY_BYTES;
+  return Math.min(Math.max(Math.floor(value), THREADS_READ_MIN_BODY_BYTES), THREADS_READ_MAX_BODY_BYTES);
 }
 
 function normalizeLimit(limit: number): number {

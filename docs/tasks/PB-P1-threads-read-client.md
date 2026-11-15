@@ -14,7 +14,8 @@ No POST/write methods, no HTTP routes, no DB access, no pagination following (fi
 
 ## Security contract
 
-- Injected `HttpTransport` (reuses oauth-client-http.ts port + fetch transport); fixed host `https://graph.threads.net`, redirects denied, bounded timeout/body/limit (1..100).
+- Injected `HttpTransport` (reuses oauth-client-http.ts port + fetch transport); fixed host `https://graph.threads.net`, redirects denied, bounded timeout/body/limit (1..100). Timeout/body overrides are validated: absent/invalid values fail closed to the shared defaults; valid values are clamped to [1s..30s] / [1KiB..1MiB] so reads can never become unbounded.
+- Response envelope validated strictly: HTTP 200 must contain a present ARRAY `data` property; a missing `data` key or a Meta-style HTTP-200 error envelope fails closed as `malformed_response` — zero replies is only ever an explicit `data: []`.
 - Token in `Authorization: Bearer` header ONLY; never in URL query.
 - `mediaId` path segment validated to numeric-string before any network call.
 - Provider errors sanitized: numeric HTTP status / Meta error.code / error_subcode only; never body text, URLs, tokens, or social content.
