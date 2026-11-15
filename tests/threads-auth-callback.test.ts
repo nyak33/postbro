@@ -457,7 +457,11 @@ test('callback (postiz transport): /me missing id rejects, no persistence', asyn
   }
 });
 
-test('callback (postiz transport): present INVALID user_id rejects at exchange, /me never consulted', async () => {
+test('callback (postiz transport): present INVALID user_id falls back to /me and persists', async () => {
+  // Live failure 2026-11-15: Meta returned a usable access_token with a
+  // present-but-unusable user_id (null); Postiz ignores the exchange
+  // user_id and sources identity from /me. The callback must therefore
+  // proceed: /me IS consulted and its identity persisted.
   const app = buildWithPostizTransport(postizHandler('', 'me-id-C'));
   try {
     const operatorId = await createOperator(920105);
@@ -466,13 +470,34 @@ test('callback (postiz transport): present INVALID user_id rejects at exchange, 
       method: 'GET',
       url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p5`,
     });
-    assert.equal(response.statusCode, 502);
-    assert.deepEqual(response.json(), { error: 'provider_exchange_failed' });
+    assert.equal(response.statusCode, 200);
+    assert.equal((response.json() as Record<string, unknown>).status, 'connected');
     const account = await ownerPool.query(
       'SELECT count(*)::int AS n FROM postbro.threads_accounts WHERE provider_id = $1',
       ['me-id-C'],
     );
-    assert.equal(account.rows[0]!.n, 0);
+    assert.equal(account.rows[0]!.n, 1, 'account persisted under the /me id');
+  } finally {
+    await app.close();
+  }
+});
+
+test('callback (postiz transport): invalid exchange user_id + /me missing id rejects, no persistence', async () => {
+  const app = buildWithPostizTransport(postizHandler('', undefined));
+  try {
+    const operatorId = await createOperator(920106);
+    const state = await startAndExtractState(app, operatorId);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p6`,
+    });
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.json(), { error: 'provider_exchange_failed' });
+    const bindings = await ownerPool.query(
+      'SELECT count(*)::int AS n FROM postbro.operator_accounts WHERE operator_id = $1',
+      [operatorId],
+    );
+    assert.equal(bindings.rows[0]!.n, 0, 'no binding created when /me id missing');
   } finally {
     await app.close();
   }

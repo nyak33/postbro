@@ -665,39 +665,68 @@ test('standard mode: ABSENT user_id still fails closed with missing_user_id', as
   );
 });
 
-test('PRESENT but invalid user_id fails closed in BOTH modes with invalid_user_id', async () => {
+test('standard mode: PRESENT but invalid user_id fails closed with invalid_user_id', async () => {
   const invalidBodies = [
     JSON.stringify({ access_token: 'tok', user_id: '' }),
     JSON.stringify({ access_token: 'tok', user_id: 1.5 }),
     JSON.stringify({ access_token: 'tok', user_id: true }),
     JSON.stringify({ access_token: 'tok', user_id: {} }),
+    JSON.stringify({ access_token: 'tok', user_id: null }),
+    JSON.stringify({ access_token: 'tok', user_id: Number.MAX_SAFE_INTEGER + 1 }),
   ];
   for (const body of invalidBodies) {
-    for (const make of [makeClient, makePostizClient]) {
-      const { transport } = transportReturning(() => ({ status: 200, body }));
-      await assert.rejects(
-        () => make(transport).exchangeCode('code'),
-        (e: unknown) => {
-          assert.ok(e instanceof ThreadsOAuthProviderError);
-          assert.equal(e.providerFailureReason, 'invalid_user_id');
-          return true;
-        },
-      );
-    }
-  }
-});
-
-test('explicit user_id null is PRESENT-malformed: rejects invalid_user_id in BOTH modes', async () => {
-  // JSON can carry null (unlike undefined); an explicitly present null is
-  // not an omission and must never be tolerated.
-  const body = JSON.stringify({ access_token: 'tok', user_id: null });
-  for (const make of [makeClient, makePostizClient]) {
     const { transport } = transportReturning(() => ({ status: 200, body }));
     await assert.rejects(
-      () => make(transport).exchangeCode('code'),
+      () => makeClient(transport).exchangeCode('code'),
       (e: unknown) => {
         assert.ok(e instanceof ThreadsOAuthProviderError);
         assert.equal(e.providerFailureReason, 'invalid_user_id');
+        return true;
+      },
+    );
+  }
+});
+
+test('postiz mode: PRESENT but invalid user_id falls back to /me (userId undefined)', async () => {
+  // Postiz (threads.provider.ts @ c22451b) ignores the exchange user_id
+  // entirely and identifies the account via authenticated GET /me. Live
+  // observation (2026-11-15): Meta returned HTTP 200 with a usable
+  // access_token and a present-but-malformed user_id, failing closed with
+  // invalid_user_id broke Connect. Postiz mode therefore treats an
+  // unusable user_id exactly like an absent one: no trustworthy exchange
+  // ID, identity sourced solely from GET /me downstream. The exchange slot
+  // stays undefined — no ID is invented and nothing is claimed verified.
+  const invalidBodies = [
+    JSON.stringify({ access_token: 'tok', user_id: '' }),
+    JSON.stringify({ access_token: 'tok', user_id: 1.5 }),
+    JSON.stringify({ access_token: 'tok', user_id: true }),
+    JSON.stringify({ access_token: 'tok', user_id: {} }),
+    JSON.stringify({ access_token: 'tok', user_id: null }),
+    JSON.stringify({ access_token: 'tok', user_id: [] }),
+    JSON.stringify({ access_token: 'tok', user_id: Number.MAX_SAFE_INTEGER + 1 }),
+  ];
+  for (const body of invalidBodies) {
+    const { transport } = transportReturning(() => ({ status: 200, body }));
+    const result = await makePostizClient(transport).exchangeCode('code');
+    assert.equal(result.accessToken, 'tok');
+    assert.equal(result.userId, undefined);
+    assert.equal('userId' in result, false, 'unusable user_id must not materialize a key');
+  }
+});
+
+test('postiz mode: invalid access_token still fails closed regardless of user_id fallback', async () => {
+  const cases = [
+    JSON.stringify({ user_id: null }),
+    JSON.stringify({ access_token: '', user_id: null }),
+    JSON.stringify({ access_token: 5, user_id: {} }),
+  ];
+  for (const body of cases) {
+    const { transport } = transportReturning(() => ({ status: 200, body }));
+    await assert.rejects(
+      () => makePostizClient(transport).exchangeCode('code'),
+      (e: unknown) => {
+        assert.ok(e instanceof ThreadsOAuthProviderError);
+        assert.equal(e.providerFailureReason, 'missing_access_token');
         return true;
       },
     );

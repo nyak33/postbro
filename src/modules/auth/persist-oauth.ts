@@ -48,8 +48,9 @@ export interface PersistOAuthCompletionInput {
    * returned one. Provenance matters: when present, it must already have
    * been verified equal to identityUserId by the caller, and it is
    * defensively re-asserted here. When ABSENT (experimental postiz
-   * transport only, where the provider omits user_id from the exchange
-   * response), the immutable provider id comes solely from GET /me below.
+   * transport only, where the provider omitted user_id from the exchange
+   * response or returned an unusable one — observed live both ways), the
+   * immutable provider id comes solely from GET /me below.
    * Never self-assert this field: do not copy identityUserId into it.
    */
   exchangeUserId?: string;

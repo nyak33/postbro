@@ -288,14 +288,17 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
    *
    * user_id handling: per Meta's official docs/Postman spec the exchange
    * response includes user_id, and the STANDARD transport fails closed when
-   * it is absent (missing_user_id). The experimental POSTIZ transport
-   * tolerates an ABSENT user_id (observed live: HTTP 200 with access_token
-   * and no user_id; Postiz's threads.provider.ts likewise ignores the
-   * exchange user_id and identifies the account via GET /me) and returns
-   * `userId: undefined` — the caller must then source the immutable account
-   * id from an authenticated GET /me. A user_id that is PRESENT but not a
-   * non-empty string / safe integer fails closed in every mode
-   * (invalid_user_id), and a present user_id must still match GET /me.
+   * it is absent (missing_user_id) or present-but-invalid (invalid_user_id).
+   * The experimental POSTIZ transport (experimental opt-in only) treats an
+   * ABSENT user_id (observed live: HTTP 200 with access_token and no
+   * user_id) or a present-but-unusable one (null, '', boolean, object,
+   * non-integer/unsafe number) as "no trustworthy exchange ID" and returns
+   * `userId: undefined` — mirroring Postiz's threads.provider.ts, which
+   * ignores the exchange user_id and identifies the account via an
+   * authenticated GET /me. A user_id that is present AND valid (non-empty
+   * string / safe integer) is preserved and must still exactly match GET
+   * /me (mismatch => identity_mismatch at the route layer). No ID is ever
+   * invented for the exchange slot; /me remains the authoritative identity.
    */
   async exchangeCode(code: string): Promise<ShortLivedTokenResult> {
     if (typeof code !== 'string' || code.length === 0) {
@@ -336,23 +339,25 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
         failureReason: 'missing_access_token',
       });
     }
-    // Presence is determined by the property itself, not its value: an
-    // explicitly present user_id (including JSON null, which JSON CAN
-    // carry — undefined cannot) that fails validation is PRESENT-but-
-    // malformed and fails closed in EVERY transport mode. Only a truly
-    // omitted property may be tolerated (postiz mode only, below).
+    // In postiz mode, a user_id that is ABSENT *or* PRESENT-but-invalid
+    // (null, '', boolean, object, non-integer/unsafe number) is treated as
+    // "no trustworthy exchange ID" — matching Postiz's threads.provider.ts,
+    // which ignores the exchange user_id entirely and identifies the account
+    // via authenticated GET /me. The exchange slot stays undefined (never
+    // invented); routes source identity from GET /me. In standard mode the
+    // documented strictness is preserved: absent => missing_user_id,
+    // present-but-invalid => invalid_user_id.
     const userIdPresent = Object.hasOwn(parsed, 'user_id');
     const userId = requireStringOrNumber(parsed['user_id']);
-    if (userIdPresent && userId === undefined) {
+    if (userIdPresent && userId === undefined && !postiz) {
       throw new ThreadsOAuthProviderError('unknown', 'provider response user_id is invalid', {
         failureReason: 'invalid_user_id',
       });
     }
-    // An ABSENT user_id is only tolerated by the experimental postiz
-    // transport (Postiz ignores the exchange user_id and identifies the
-    // account via GET /me; the live provider was observed returning HTTP
-    // 200 with access_token only in this mode). Standard mode follows
-    // Meta's documented response shape strictly and fails closed.
+    // Standard mode follows Meta's documented response shape strictly and
+    // fails closed when user_id is omitted. Postiz mode tolerates omission
+    // (live-observed: HTTP 200 with access_token only) and, per the Postiz
+    // contract, unusable values as well — identity comes solely from /me.
     if (userId === undefined && !postiz) {
       throw new ThreadsOAuthProviderError('unknown', 'provider response missing user_id', {
         failureReason: 'missing_user_id',
