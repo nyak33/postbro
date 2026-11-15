@@ -50,6 +50,7 @@ import {
   type ThreadsIdentity,
   type ThreadsOAuthClient,
   type ThreadsOAuthErrorKind,
+  type ThreadsOAuthProviderFailureReason,
 } from './oauth-client';
 
 export const THREADS_GRAPH_ORIGIN = 'https://graph.threads.net';
@@ -302,12 +303,16 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     }
     const parsed = parseJsonObject(res.body);
     if (!parsed) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON');
+      throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON', {
+        failureReason: 'malformed_response',
+      });
     }
     const accessToken = requireString(parsed['access_token']);
     const userId = requireStringOrNumber(parsed['user_id']);
     if (!accessToken || !userId) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider response missing required fields');
+      throw new ThreadsOAuthProviderError('unknown', 'provider response missing required fields', {
+        failureReason: 'missing_fields',
+      });
     }
     return { accessToken, userId, tokenType: 'bearer' };
   }
@@ -357,11 +362,15 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     }
     const parsed = parseJsonObject(res.body);
     if (!parsed) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON');
+      throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON', {
+        failureReason: 'malformed_response',
+      });
     }
     const accessToken = requireString(parsed['access_token']);
     if (!accessToken) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider response missing access_token');
+      throw new ThreadsOAuthProviderError('unknown', 'provider response missing access_token', {
+        failureReason: 'missing_fields',
+      });
     }
     const expiresRaw = parsed['expires_in'];
     const expiresInSeconds =
@@ -399,11 +408,15 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     }
     const parsed = parseJsonObject(res.body);
     if (!parsed) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON');
+      throw new ThreadsOAuthProviderError('unknown', 'provider returned malformed JSON', {
+        failureReason: 'malformed_response',
+      });
     }
     const id = requireStringOrNumber(parsed['id']);
     if (!id) {
-      throw new ThreadsOAuthProviderError('unknown', 'provider response missing id');
+      throw new ThreadsOAuthProviderError('unknown', 'provider response missing id', {
+        failureReason: 'missing_fields',
+      });
     }
     const username = requireString(parsed['username']);
     return { id, ...(username ? { username } : {}) };
@@ -443,7 +456,11 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
       if (error instanceof ThreadsHttpTransportError) {
         const kind: ThreadsOAuthErrorKind =
           error.reason === 'timeout' ? 'provider_unavailable' : 'unknown';
-        throw new ThreadsOAuthProviderError(kind, 'provider request failed');
+        // Safe categorical reason (fixed enum, no free text) so sanitized
+        // logs can distinguish network vs redirect vs oversize body.
+        throw new ThreadsOAuthProviderError(kind, 'provider request failed', {
+          failureReason: error.reason,
+        });
       }
       if (error instanceof ThreadsOAuthProviderError) {
         throw error;

@@ -160,8 +160,9 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
     } catch (error) {
       if (error instanceof ThreadsOAuthProviderError) {
         // SANITIZED diagnostics only: fixed stage label + allowlisted error
-        // kind enum. NEVER log provider messages, response bodies, request
-        // URLs, codes, state, tokens or secrets here.
+        // kind enum + validated numeric Meta diagnostics + fixed categorical
+        // failure-reason enum. NEVER log provider messages, response bodies,
+        // request URLs, codes, state, tokens or secrets here.
         request.log.warn(
           {
             stage,
@@ -174,6 +175,9 @@ export function registerThreadsAuthRoutes(app: FastifyInstance, deps: ThreadsAut
               : {}),
             ...(error.providerErrorSubcode !== undefined
               ? { providerErrorSubcode: error.providerErrorSubcode }
+              : {}),
+            ...(error.providerFailureReason !== undefined
+              ? { providerFailureReason: error.providerFailureReason }
               : {}),
           },
           'threads oauth provider exchange failed',
