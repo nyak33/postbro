@@ -43,9 +43,22 @@ export class PersistOAuthCompletionError extends Error {
 
 export interface PersistOAuthCompletionInput {
   operatorId: number;
-  /** Immutable provider user id from the token exchange. */
-  exchangeUserId: string;
-  /** Immutable provider user id from GET /me. */
+  /**
+   * Immutable provider user id from the token exchange, when the provider
+   * returned one. Provenance matters: when present, it must already have
+   * been verified equal to identityUserId by the caller, and it is
+   * defensively re-asserted here. When ABSENT (experimental postiz
+   * transport only, where the provider omits user_id from the exchange
+   * response), the immutable provider id comes solely from GET /me below.
+   * Never self-assert this field: do not copy identityUserId into it.
+   */
+  exchangeUserId?: string;
+  /**
+   * Immutable provider user id from GET /me. REQUIRED in every mode and
+   * independently validated: it is the id persisted as the account's
+   * immutable provider id. When exchangeUserId is absent this is the sole
+   * identity evidence.
+   */
   identityUserId: string;
   username?: string | undefined;
   /** Long-lived token plaintext — encrypted in memory, never persisted raw. */
@@ -85,18 +98,27 @@ export async function persistOAuthCompletion(
   pool: Pool,
   input: PersistOAuthCompletionInput,
 ): Promise<PersistOAuthCompletionResult> {
+  // exchangeUserId provenance: when provided it must be a non-empty string;
+  // a present-but-empty or wrong-typed value is rejected, never treated as
+  // "absent". identityUserId is REQUIRED in every mode — it is the
+  // authoritative provider id persisted for the account.
+  const hasExchangeUserId = input.exchangeUserId !== undefined;
   if (
     !Number.isInteger(input.operatorId) ||
     input.operatorId <= 0 ||
-    typeof input.exchangeUserId !== 'string' ||
-    input.exchangeUserId.length === 0 ||
+    typeof input.identityUserId !== 'string' ||
+    input.identityUserId.length === 0 ||
+    (hasExchangeUserId &&
+      (typeof input.exchangeUserId !== 'string' || input.exchangeUserId.length === 0)) ||
     typeof input.longLivedToken !== 'string' ||
     input.longLivedToken.length === 0
   ) {
     throw new PersistOAuthCompletionError('invalid_input', 'invalid persistence input');
   }
-  // Defensive re-check: the callback must have verified this already.
-  if (input.identityUserId !== input.exchangeUserId) {
+  // Defensive re-check: when the exchange supplied a user id, the callback
+  // must already have verified equality with GET /me. When the exchange
+  // omitted it (experimental postiz transport), identityUserId stands alone.
+  if (hasExchangeUserId && input.identityUserId !== input.exchangeUserId) {
     throw new PersistOAuthCompletionError(
       'identity_mismatch',
       'provider identity does not match token exchange user id',
@@ -126,7 +148,9 @@ export async function persistOAuthCompletion(
       `SELECT postbro.connect_threads_account($1, $2, $3, $4, $5, $6, $7) AS account_id`,
       [
         input.operatorId,
-        input.exchangeUserId,
+        // The immutable provider id is ALWAYS the /me identity; when the
+        // exchange omitted user_id it is the only identity evidence.
+        input.identityUserId,
         input.username ?? null,
         scopes,
         ciphertext,

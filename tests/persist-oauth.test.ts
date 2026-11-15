@@ -279,3 +279,78 @@ test('persist: app role cannot read other operators accounts directly (RLS intac
     client.release();
   }
 });
+
+// --- exchangeUserId provenance: optional, never self-asserted -------------
+
+test('persist: absent exchangeUserId persists the /me identity id', async () => {
+  const operatorId = await createOperator(930012);
+  const input = baseInput(operatorId, 'provider-930012');
+  const { exchangeUserId, ...withoutExchange } = input;
+  void exchangeUserId;
+  const result = await persistOAuthCompletion(appPool, withoutExchange);
+  assert.ok(result.accountId > 0);
+  const account = await getAccount('provider-930012');
+  assert.ok(account, 'account persisted under the /me identity id');
+  const binding = await ownerPool.query(
+    'SELECT count(*)::int AS n FROM postbro.operator_accounts WHERE operator_id = $1 AND account_id = $2',
+    [operatorId, result.accountId],
+  );
+  assert.equal(binding.rows[0]!.n, 1);
+});
+
+test('persist: absent identityUserId is invalid input', async () => {
+  const operatorId = await createOperator(930013);
+  const input = baseInput(operatorId, 'provider-930013') as Record<string, unknown>;
+  delete input.identityUserId;
+  await assert.rejects(
+    () =>
+      persistOAuthCompletion(appPool, input as unknown as Parameters<typeof persistOAuthCompletion>[1]),
+    (error: unknown) =>
+      error instanceof PersistOAuthCompletionError && error.reason === 'invalid_input',
+  );
+  assert.equal(await getAccount('provider-930013'), undefined);
+});
+
+test('persist: empty identityUserId is invalid input', async () => {
+  const operatorId = await createOperator(930014);
+  await assert.rejects(
+    () => persistOAuthCompletion(appPool, baseInput(operatorId, '')),
+    (error: unknown) =>
+      error instanceof PersistOAuthCompletionError && error.reason === 'invalid_input',
+  );
+});
+
+test('persist: present-but-empty exchangeUserId is invalid input (never treated as absent)', async () => {
+  const operatorId = await createOperator(930015);
+  await assert.rejects(
+    () =>
+      persistOAuthCompletion(appPool, {
+        ...baseInput(operatorId, 'provider-930015'),
+        exchangeUserId: '',
+      }),
+    (error: unknown) =>
+      error instanceof PersistOAuthCompletionError && error.reason === 'invalid_input',
+  );
+  assert.equal(await getAccount('provider-930015'), undefined);
+});
+
+test('persist: mismatch with present exchangeUserId still rejected; absent skips comparison', async () => {
+  const operatorId = await createOperator(930016);
+  // Present + mismatch -> identity_mismatch (existing behavior preserved).
+  await assert.rejects(
+    () =>
+      persistOAuthCompletion(appPool, {
+        ...baseInput(operatorId, 'provider-930016'),
+        exchangeUserId: 'exchange-claims-other',
+      }),
+    (error: unknown) =>
+      error instanceof PersistOAuthCompletionError && error.reason === 'identity_mismatch',
+  );
+  // Absent + same identity id -> succeeds (already covered above, re-assert
+  // the comparison is not faked by copying identity into the exchange slot).
+  const input = baseInput(operatorId, 'provider-930016');
+  const { exchangeUserId, ...withoutExchange } = input;
+  void exchangeUserId;
+  const result = await persistOAuthCompletion(appPool, withoutExchange);
+  assert.ok(result.accountId > 0);
+});

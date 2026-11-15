@@ -8,6 +8,7 @@ import { Pool } from 'pg';
 import { buildApp, type BuildAppOptions } from '../src/app';
 import { migrateDatabase } from '../src/db/migrate';
 import { MockThreadsOAuthClient } from '../src/integrations/threads/oauth-client';
+import { ThreadsHttpOAuthClient } from '../src/integrations/threads/oauth-client-http';
 import { mintLinkToken } from '../src/modules/auth/oauth-state';
 import {
   connectionStringFor,
@@ -302,6 +303,176 @@ test('callback: disabled operator session fails closed', async () => {
     );
     assert.equal(sessions.rows[0]!.consumed_at, null);
     assert.equal(oauthClient.calls.filter((c) => c.method === 'exchangeCode').length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+// --- postiz exchange omits user_id: /me becomes the sole provider id ------
+
+function buildWithPostizTransport(handler: (req: {
+  method: string;
+  url: string;
+}) => { status: number; body: string }): ReturnType<typeof buildApp> {
+  // Full-stack: real ThreadsHttpOAuthClient in postiz mode over a fake
+  // transport — exercises parsing, mode gating and callback orchestration.
+  // No network; disposable Postgres only.
+  const client = new ThreadsHttpOAuthClient({
+    config: { ...OAUTH_CONFIG, transportMode: 'postiz' },
+    transport: (req) => {
+      const url = new URL(req.url);
+      return Promise.resolve(handler({ method: req.method, url: url.pathname }));
+    },
+  });
+  const options: BuildAppOptions = {
+    threadsAuth: {
+      pool: appPool,
+      signingSecret: SIGNING_SECRET,
+      oauthClient: client,
+      tokenEncryptionKey: ENCRYPTION_KEY,
+    },
+  };
+  return buildApp(options);
+}
+
+function postizHandler(userIdBody: string | undefined, meId: string | undefined) {
+  return ({ url }: { method: string; url: string }) => {
+    if (url === '/oauth/access_token') {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          access_token: 'short-tok-NOT-REAL',
+          ...(userIdBody !== undefined ? { user_id: userIdBody } : {}),
+        }),
+      };
+    }
+    if (url === '/access_token') {
+      return { status: 200, body: JSON.stringify({ access_token: 'long-tok-NOT-REAL', expires_in: 3600 }) };
+    }
+    // /v1.0/me
+    return {
+      status: 200,
+      body: JSON.stringify({
+        ...(meId !== undefined ? { id: meId } : {}),
+        username: 'postiz-user',
+      }),
+    };
+  };
+}
+
+test('callback (postiz transport): token-only exchange succeeds via /me id through persistence', async () => {
+  const app = buildWithPostizTransport(postizHandler(undefined, 'provider-postiz-1'));
+  try {
+    const operatorId = await createOperator(920101);
+    const state = await startAndExtractState(app, operatorId);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p1`,
+    });
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as Record<string, unknown>;
+    assert.equal(body.status, 'connected');
+    assert.equal(typeof body.accountId, 'number');
+    // Persisted under the /me id.
+    const account = await ownerPool.query(
+      'SELECT id, username FROM postbro.threads_accounts WHERE provider_id = $1',
+      ['provider-postiz-1'],
+    );
+    assert.equal(account.rowCount, 1);
+    assert.equal(account.rows[0]!.username, 'postiz-user');
+    // No token material in the response.
+    assert.ok(!response.body.includes('short-tok'));
+    assert.ok(!response.body.includes('long-tok'));
+  } finally {
+    await app.close();
+  }
+});
+
+test('callback (postiz transport): present user_id matching /me succeeds', async () => {
+  const app = buildWithPostizTransport(postizHandler('provider-postiz-2', 'provider-postiz-2'));
+  try {
+    const operatorId = await createOperator(920102);
+    const state = await startAndExtractState(app, operatorId);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p2`,
+    });
+    assert.equal(response.statusCode, 200);
+    const account = await ownerPool.query(
+      'SELECT count(*)::int AS n FROM postbro.threads_accounts WHERE provider_id = $1',
+      ['provider-postiz-2'],
+    );
+    assert.equal(account.rows[0]!.n, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('callback (postiz transport): present user_id mismatching /me rejects, no persistence', async () => {
+  const app = buildWithPostizTransport(postizHandler('exchange-id-A', 'me-id-B'));
+  try {
+    const operatorId = await createOperator(920103);
+    const state = await startAndExtractState(app, operatorId);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p3`,
+    });
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.json(), { error: 'identity_mismatch' });
+    for (const pid of ['exchange-id-A', 'me-id-B']) {
+      const account = await ownerPool.query(
+        'SELECT count(*)::int AS n FROM postbro.threads_accounts WHERE provider_id = $1',
+        [pid],
+      );
+      assert.equal(account.rows[0]!.n, 0, 'no account persisted on mismatch');
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test('callback (postiz transport): /me missing id rejects, no persistence', async () => {
+  const app = buildWithPostizTransport(postizHandler(undefined, undefined));
+  try {
+    const operatorId = await createOperator(920104);
+    const state = await startAndExtractState(app, operatorId);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p4`,
+    });
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.json(), { error: 'provider_exchange_failed' });
+    const accounts = await ownerPool.query(
+      `SELECT count(*)::int AS n FROM postbro.threads_accounts WHERE username = 'postiz-user'`,
+    );
+    // Only the earlier successful test's row may exist; this operator got none.
+    const bindings = await ownerPool.query(
+      'SELECT count(*)::int AS n FROM postbro.operator_accounts WHERE operator_id = $1',
+      [operatorId],
+    );
+    assert.equal(bindings.rows[0]!.n, 0, 'no binding created for failed /me');
+    void accounts;
+  } finally {
+    await app.close();
+  }
+});
+
+test('callback (postiz transport): present INVALID user_id rejects at exchange, /me never consulted', async () => {
+  const app = buildWithPostizTransport(postizHandler('', 'me-id-C'));
+  try {
+    const operatorId = await createOperator(920105);
+    const state = await startAndExtractState(app, operatorId);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/auth/threads/callback?state=${encodeURIComponent(state)}&code=fake-code-p5`,
+    });
+    assert.equal(response.statusCode, 502);
+    assert.deepEqual(response.json(), { error: 'provider_exchange_failed' });
+    const account = await ownerPool.query(
+      'SELECT count(*)::int AS n FROM postbro.threads_accounts WHERE provider_id = $1',
+      ['me-id-C'],
+    );
+    assert.equal(account.rows[0]!.n, 0);
   } finally {
     await app.close();
   }
