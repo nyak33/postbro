@@ -528,16 +528,52 @@ test('postiz mode: exchangeLongLived passes token as access_token query param, n
   assert.equal(call.headers['authorization'], undefined);
 });
 
-test('postiz mode: refreshLongLived uses th_refresh_token with token in query', async () => {
+test('postiz mode: refreshLongLived matches Postiz refreshToken() exactly', async () => {
+  // Postiz @ c22451b: GET https://graph.threads.net/refresh_access_token
+  //   ?grant_type=th_refresh_token&access_token=<long-token>
+  // — distinct path from the exchange endpoint and NO client_secret.
   const { transport, calls } = transportReturning(() => ({
     status: 200,
     body: JSON.stringify({ access_token: 'refreshed', token_type: 'bearer', expires_in: 5184000 }),
   }));
   await makePostizClient(transport).refreshLongLived('old-long-token');
-  const url = new URL(calls[0]!.url);
+  const call = calls[0]!;
+  assert.equal(call.method, 'GET');
+  const url = new URL(call.url);
+  assert.equal(url.origin, THREADS_GRAPH_ORIGIN);
+  assert.equal(url.pathname, '/refresh_access_token');
   assert.equal(url.searchParams.get('grant_type'), 'th_refresh_token');
   assert.equal(url.searchParams.get('access_token'), 'old-long-token');
-  assert.equal(calls[0]!.headers['authorization'], undefined);
+  assert.equal(url.searchParams.get('client_secret'), null);
+  assert.equal(call.headers['authorization'], undefined);
+});
+
+test('postiz mode: exchange still hits /access_token with client_secret (only refresh diverges)', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'long-token', token_type: 'bearer' }),
+  }));
+  await makePostizClient(transport).exchangeLongLived('short-token');
+  const url = new URL(calls[0]!.url);
+  assert.equal(url.pathname, '/access_token');
+  assert.equal(url.searchParams.get('client_secret'), POSTIZ_CONFIG.appSecret);
+});
+
+test('standard mode: refreshLongLived unchanged (/access_token, client_secret, Bearer header)', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'refreshed', token_type: 'bearer' }),
+  }));
+  await makeClient(transport).refreshLongLived('old-long-token');
+  const call = calls[0]!;
+  assert.equal(call.method, 'GET');
+  const url = new URL(call.url);
+  assert.equal(url.origin, THREADS_GRAPH_ORIGIN);
+  assert.equal(url.pathname, '/access_token');
+  assert.equal(url.searchParams.get('grant_type'), 'th_refresh_token');
+  assert.equal(url.searchParams.get('client_secret'), CONFIG.appSecret);
+  assert.equal(url.searchParams.get('access_token'), null);
+  assert.equal(call.headers['authorization'], 'Bearer old-long-token');
 });
 
 test('postiz mode: getMe passes token as access_token query param, no auth header', async () => {
