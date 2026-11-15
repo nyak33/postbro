@@ -50,7 +50,6 @@ import {
   type ThreadsIdentity,
   type ThreadsOAuthClient,
   type ThreadsOAuthErrorKind,
-  type ThreadsOAuthProviderFailureReason,
 } from './oauth-client';
 
 export const THREADS_GRAPH_ORIGIN = 'https://graph.threads.net';
