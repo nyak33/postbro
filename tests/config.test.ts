@@ -230,6 +230,30 @@ test('parseConfig rejects non-https PUBLIC_BASE_URL in production with OAuth con
   );
 });
 
+test('THREADS_OAUTH_TRANSPORT_MODE defaults to standard and accepts postiz opt-in', () => {
+  const standard = parseConfig({ ...VALID_OAUTH_ENV });
+  assert.equal(standard.threadsOAuth?.transportMode, 'standard');
+  const postiz = parseConfig({ ...VALID_OAUTH_ENV, THREADS_OAUTH_TRANSPORT_MODE: 'postiz' });
+  assert.equal(postiz.threadsOAuth?.transportMode, 'postiz');
+  const explicit = parseConfig({ ...VALID_OAUTH_ENV, THREADS_OAUTH_TRANSPORT_MODE: 'standard' });
+  assert.equal(explicit.threadsOAuth?.transportMode, 'standard');
+});
+
+test('parseConfig rejects an unknown THREADS_OAUTH_TRANSPORT_MODE', () => {
+  assert.throws(
+    () => parseConfig({ ...VALID_OAUTH_ENV, THREADS_OAUTH_TRANSPORT_MODE: 'experimental' }),
+    (error: unknown) =>
+      error instanceof ConfigError && /THREADS_OAUTH_TRANSPORT_MODE must be one of: standard, postiz/.test(error.message),
+  );
+});
+
+test('THREADS_OAUTH_TRANSPORT_MODE alone counts as OAuth config and fails fast on missing set', () => {
+  assert.throws(
+    () => parseConfig({ THREADS_OAUTH_TRANSPORT_MODE: 'postiz' }),
+    (error: unknown) => error instanceof ConfigError && /THREADS_APP_ID is required/.test(error.message),
+  );
+});
+
 test('parseConfig requires threads_basic in scopes', () => {
   assert.throws(
     () =>

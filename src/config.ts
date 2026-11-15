@@ -1,11 +1,20 @@
 export type NodeEnvironment = 'development' | 'test' | 'production';
 export type DatabaseSslMode = 'disable' | 'require' | 'verify-ca' | 'verify-full';
 
+export type ThreadsOAuthTransportMode = 'standard' | 'postiz';
+
 export interface ThreadsOAuthConfig {
   appId: string;
   appSecret: string;
   redirectUri: string;
   scopes: string[];
+  /**
+   * HTTP transport shape for token/identity calls. 'standard' (default)
+   * follows Meta's official docs (Bearer headers). 'postiz' is an
+   * EXPERIMENTAL opt-in that mirrors Postiz's parameter placement for
+   * compatibility testing only.
+   */
+  transportMode?: ThreadsOAuthTransportMode;
 }
 
 export interface AppConfig {
@@ -171,11 +180,21 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const threadsAppSecret = env.THREADS_APP_SECRET?.trim();
   const threadsRedirectUriValue = env.THREADS_REDIRECT_URI?.trim();
   const threadsScopesValue = env.THREADS_SCOPES?.trim();
+  const threadsTransportModeValue = env.THREADS_OAUTH_TRANSPORT_MODE?.trim();
+  let threadsTransportMode: ThreadsOAuthTransportMode = 'standard';
+  if (threadsTransportModeValue !== undefined && threadsTransportModeValue.length > 0) {
+    if (threadsTransportModeValue === 'standard' || threadsTransportModeValue === 'postiz') {
+      threadsTransportMode = threadsTransportModeValue;
+    } else {
+      issues.push('THREADS_OAUTH_TRANSPORT_MODE must be one of: standard, postiz');
+    }
+  }
   const anyThreadsVarSet =
     threadsAppId !== undefined ||
     threadsAppSecret !== undefined ||
     threadsRedirectUriValue !== undefined ||
-    threadsScopesValue !== undefined;
+    threadsScopesValue !== undefined ||
+    threadsTransportModeValue !== undefined;
 
   let threadsOAuth: ThreadsOAuthConfig | undefined;
   if (anyThreadsVarSet) {
@@ -240,6 +259,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         appSecret: threadsAppSecret,
         redirectUri: redirectUri.toString(),
         scopes,
+        transportMode: threadsTransportMode,
       };
     }
   }
