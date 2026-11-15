@@ -480,3 +480,159 @@ test('client constructor rejects incomplete config', () => {
     /incomplete/,
   );
 });
+
+// --- transportMode: 'postiz' (experimental opt-in) -------------------------
+
+const POSTIZ_CONFIG: ThreadsOAuthConfig = { ...CONFIG, transportMode: 'postiz' };
+
+function makePostizClient(transport: HttpTransport): ThreadsHttpOAuthClient {
+  return new ThreadsHttpOAuthClient({ config: POSTIZ_CONFIG, transport });
+}
+
+test('postiz mode: exchangeCode uses GET with identical query params and no body', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'short-token', user_id: '12345' }),
+  }));
+  const result = await makePostizClient(transport).exchangeCode('dummy-code');
+  assert.equal(result.accessToken, 'short-token');
+  assert.equal(result.userId, '12345');
+
+  assert.equal(calls.length, 1);
+  const call = calls[0]!;
+  assert.equal(call.method, 'GET');
+  const url = new URL(call.url);
+  assert.equal(url.origin, THREADS_GRAPH_ORIGIN);
+  assert.equal(url.pathname, '/oauth/access_token');
+  assert.equal(url.searchParams.get('client_id'), POSTIZ_CONFIG.appId);
+  assert.equal(url.searchParams.get('client_secret'), POSTIZ_CONFIG.appSecret);
+  assert.equal(url.searchParams.get('code'), 'dummy-code');
+  assert.equal(url.searchParams.get('grant_type'), 'authorization_code');
+  assert.equal(url.searchParams.get('redirect_uri'), POSTIZ_CONFIG.redirectUri);
+  assert.equal(call.body, undefined);
+});
+
+test('postiz mode: exchangeLongLived passes token as access_token query param, no auth header', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'long-token', token_type: 'bearer', expires_in: 5184000 }),
+  }));
+  await makePostizClient(transport).exchangeLongLived('short-token');
+  const call = calls[0]!;
+  assert.equal(call.method, 'GET');
+  const url = new URL(call.url);
+  assert.equal(url.pathname, '/access_token');
+  assert.equal(url.searchParams.get('grant_type'), 'th_exchange_token');
+  assert.equal(url.searchParams.get('client_secret'), POSTIZ_CONFIG.appSecret);
+  assert.equal(url.searchParams.get('access_token'), 'short-token');
+  assert.equal(call.headers['authorization'], undefined);
+});
+
+test('postiz mode: refreshLongLived matches Postiz refreshToken() exactly', async () => {
+  // Postiz @ c22451b: GET https://graph.threads.net/refresh_access_token
+  //   ?grant_type=th_refresh_token&access_token=<long-token>
+  // — distinct path from the exchange endpoint and NO client_secret.
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'refreshed', token_type: 'bearer', expires_in: 5184000 }),
+  }));
+  await makePostizClient(transport).refreshLongLived('old-long-token');
+  const call = calls[0]!;
+  assert.equal(call.method, 'GET');
+  const url = new URL(call.url);
+  assert.equal(url.origin, THREADS_GRAPH_ORIGIN);
+  assert.equal(url.pathname, '/refresh_access_token');
+  assert.equal(url.searchParams.get('grant_type'), 'th_refresh_token');
+  assert.equal(url.searchParams.get('access_token'), 'old-long-token');
+  assert.equal(url.searchParams.get('client_secret'), null);
+  assert.equal(call.headers['authorization'], undefined);
+});
+
+test('postiz mode: exchange still hits /access_token with client_secret (only refresh diverges)', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'long-token', token_type: 'bearer' }),
+  }));
+  await makePostizClient(transport).exchangeLongLived('short-token');
+  const url = new URL(calls[0]!.url);
+  assert.equal(url.pathname, '/access_token');
+  assert.equal(url.searchParams.get('client_secret'), POSTIZ_CONFIG.appSecret);
+});
+
+test('standard mode: refreshLongLived unchanged (/access_token, client_secret, Bearer header)', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'refreshed', token_type: 'bearer' }),
+  }));
+  await makeClient(transport).refreshLongLived('old-long-token');
+  const call = calls[0]!;
+  assert.equal(call.method, 'GET');
+  const url = new URL(call.url);
+  assert.equal(url.origin, THREADS_GRAPH_ORIGIN);
+  assert.equal(url.pathname, '/access_token');
+  assert.equal(url.searchParams.get('grant_type'), 'th_refresh_token');
+  assert.equal(url.searchParams.get('client_secret'), CONFIG.appSecret);
+  assert.equal(url.searchParams.get('access_token'), null);
+  assert.equal(call.headers['authorization'], 'Bearer old-long-token');
+});
+
+test('postiz mode: getMe passes token as access_token query param, no auth header', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ id: '12345', username: 'tester' }),
+  }));
+  const me = await makePostizClient(transport).getMe('long-token');
+  assert.deepEqual(me, { id: '12345', username: 'tester' });
+  const call = calls[0]!;
+  const url = new URL(call.url);
+  assert.equal(url.pathname, '/v1.0/me');
+  assert.equal(url.searchParams.get('fields'), 'id,username');
+  assert.equal(url.searchParams.get('access_token'), 'long-token');
+  assert.equal(call.headers['authorization'], undefined);
+});
+
+test('postiz mode: secret/token scrubbing on transport errors is unchanged', async () => {
+  const secretUrlProbe: HttpTransport = (req) =>
+    Promise.reject(new ThreadsHttpTransportError('network', `boom for ${req.url}`));
+  await assert.rejects(
+    () => makePostizClient(secretUrlProbe).exchangeLongLived('SECRET-TOKEN-SENTINEL'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      const serialized = JSON.stringify(e);
+      assert.equal(serialized.includes(POSTIZ_CONFIG.appSecret), false);
+      assert.equal(serialized.includes('SECRET-TOKEN-SENTINEL'), false);
+      assert.equal(serialized.includes('graph.threads.net'), false);
+      return true;
+    },
+  );
+});
+
+test('postiz mode: provider error envelope handling unchanged (sanitized)', async () => {
+  const { transport } = transportReturning(() => ({
+    status: 400,
+    body: JSON.stringify({ error: { message: 'SECRET_SENTINEL', type: 'OAuthException', code: 100 } }),
+  }));
+  await assert.rejects(
+    () => makePostizClient(transport).exchangeCode('code'),
+    (e: unknown) => {
+      assert.ok(e instanceof ThreadsOAuthProviderError);
+      assert.equal(e.providerStatus, 400);
+      assert.equal(e.providerErrorCode, 100);
+      assert.equal(JSON.stringify(e).includes('SECRET_SENTINEL'), false);
+      return true;
+    },
+  );
+});
+
+test('standard mode (explicit) matches default behavior', async () => {
+  const { transport, calls } = transportReturning(() => ({
+    status: 200,
+    body: JSON.stringify({ access_token: 'tok', user_id: '1' }),
+  }));
+  const client = new ThreadsHttpOAuthClient({
+    config: { ...CONFIG, transportMode: 'standard' },
+    transport,
+  });
+  await client.exchangeCode('code');
+  assert.equal(calls[0]!.method, 'POST');
+});

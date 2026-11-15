@@ -297,8 +297,13 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     url.searchParams.set('code', code);
     url.searchParams.set('grant_type', 'authorization_code');
     url.searchParams.set('redirect_uri', this.config.redirectUri);
+    // Postiz mode: GET with identical query-string parameter placement and
+    // no body (mirroring Postiz's authenticate()). Standard mode: POST with
+    // no body per Meta's official docs. Both carry the secret and code in
+    // the URL — same threat model, URLs must never be logged.
+    const postiz = (this.config.transportMode ?? 'standard') === 'postiz';
     const res = await this.request({
-      method: 'POST',
+      method: postiz ? 'GET' : 'POST',
       url: url.toString(),
       headers: {},
     });
@@ -358,13 +363,32 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     if (typeof token !== 'string' || token.length === 0) {
       throw new ThreadsOAuthProviderError('unknown', 'token must be non-empty');
     }
-    const url = new URL(`${THREADS_GRAPH_ORIGIN}/access_token`);
+    const postiz = (this.config.transportMode ?? 'standard') === 'postiz';
+    // Postiz mode refresh uses Postiz's refreshToken() contract exactly:
+    // GET /refresh_access_token?grant_type=th_refresh_token&access_token=<token>
+    // — a DIFFERENT path and NO client_secret. Postiz exchange still uses
+    // GET /access_token?grant_type=th_exchange_token&client_secret=...&access_token=...
+    const isPostizRefresh = postiz && grantType === 'th_refresh_token';
+    const url = new URL(
+      `${THREADS_GRAPH_ORIGIN}${isPostizRefresh ? '/refresh_access_token' : '/access_token'}`,
+    );
     url.searchParams.set('grant_type', grantType);
-    url.searchParams.set('client_secret', this.config.appSecret);
+    if (!isPostizRefresh) {
+      url.searchParams.set('client_secret', this.config.appSecret);
+    }
+    // Postiz mode places the token as an access_token URL query parameter
+    // (mirroring Postiz's threads.provider.ts). Standard mode uses the
+    // Authorization header only. The exchange URL already carries
+    // client_secret in BOTH modes, so the no-logging threat model is
+    // identical.
+    const headers: Record<string, string> = postiz ? {} : { authorization: `Bearer ${token}` };
+    if (postiz) {
+      url.searchParams.set('access_token', token);
+    }
     const res = await this.request({
       method: 'GET',
       url: url.toString(),
-      headers: { authorization: `Bearer ${token}` },
+      headers,
     });
     if (res.status !== 200) {
       throw providerRejectionError(
@@ -405,12 +429,18 @@ export class ThreadsHttpOAuthClient implements ThreadsOAuthClient {
     if (typeof accessToken !== 'string' || accessToken.length === 0) {
       throw new ThreadsOAuthProviderError('revoked', 'access token must be non-empty');
     }
+    const postiz = (this.config.transportMode ?? 'standard') === 'postiz';
     const url = new URL(`${THREADS_GRAPH_ORIGIN}/${THREADS_API_VERSION}/me`);
     url.searchParams.set('fields', 'id,username');
+    // Postiz mode: token as access_token URL query parameter, no auth header.
+    const headers: Record<string, string> = postiz ? {} : { authorization: `Bearer ${accessToken}` };
+    if (postiz) {
+      url.searchParams.set('access_token', accessToken);
+    }
     const res = await this.request({
       method: 'GET',
       url: url.toString(),
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers,
     });
     if (res.status !== 200) {
       throw providerRejectionError(
