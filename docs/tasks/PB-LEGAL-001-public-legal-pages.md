@@ -1,7 +1,10 @@
 # PB-LEGAL-001: Public legal pages (privacy, terms, data deletion)
 
-Status: DRAFT — awaiting owner signoff on this spec and on the drafted legal copy
-before implementation. No code has been written for this task yet.
+Status: APPROVED (owner signoff 2026-11-17) and IMPLEMENTED — routes, tests,
+spec and copy committed on feat/PB-LEGAL-001-public-legal-pages, PR #23 open.
+Pending: owner content review of the published page copy, then deploy
+(owner-gated). History: spec first written as DRAFT before signoff; updated
+here after approval and implementation to reflect actual state.
 
 ## Task ID
 

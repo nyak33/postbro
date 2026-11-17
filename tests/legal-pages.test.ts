@@ -73,7 +73,11 @@ test('privacy page carries required disclosures and no unverifiable claims', asy
     const body = response.body;
     assert.ok(body.includes('Supabase'), 'discloses database processor');
     assert.ok(body.includes('encrypted'), 'discloses token encryption');
-    assert.ok(body.includes('not yet been independently verified'), 'Postiz claims stay unverified');
+    assert.ok(
+      body.includes('being manually verified before launch'),
+      'Postiz practices disclosed as unverified without overclaiming',
+    );
+    assert.ok(body.includes('Cloudflare'), 'discloses Cloudflare proxy');
     assert.ok(!body.includes('Packtica'), 'must not mention Packtica');
     assert.ok(body.includes('AI-generated replies'), 'states AI replies are not sent');
     assert.ok(body.includes('not live'), 'states AI drafting is not live');

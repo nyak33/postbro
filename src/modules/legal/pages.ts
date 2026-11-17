@@ -86,22 +86,23 @@ export function renderPrivacyPage(): string {
     {
       heading: 'What PostBro currently processes (Threads)',
       body: [
-        'As of the effective date above, PostBro&rsquo;s implemented functionality is limited to Threads account connection and reading inbound engagement. For connected Threads accounts, PostBro processes and stores:',
-        'Your Threads user ID and username; the permissions (scopes) you grant during authorisation; your access token, stored in encrypted form; identifiers, permalinks and timestamps of your own threads as needed to provide the service; and the text, timestamps and conversation relationships of other users&rsquo; replies to your own threads, stored so that inbound engagement can be reviewed and managed.',
+        'As of the effective date above, PostBro&rsquo;s functionality is limited to connecting your Threads account and reading inbound replies to your threads. When you connect an account, PostBro stores:',
+        'Your Threads user ID and username; the permissions (scopes) you grant during authorisation; and your access token, stored in encrypted form.',
+        'To show you inbound engagement, PostBro reads your own threads from Meta&rsquo;s API while the service runs. Reply text, timestamps and conversation relationships from other users&rsquo; replies to your threads are stored so that your engagement inbox can be reviewed and managed.',
         'PostBro does <em>not</em> currently send automated or AI-generated replies. AI-assisted drafting is a possible future capability and is not live; if it is introduced, this policy will be updated before it is enabled.',
       ],
     },
     {
       heading: 'What Postiz processes (posting and scheduling)',
       body: [
-        'Postiz is a separate, self-hosted service operated by the same individual. It handles authorised Facebook Page, Instagram and Threads profile connections, and post scheduling and publishing. To do this, Postiz necessarily processes the content you submit for posting and the relevant profile and account details required by the connected platforms.',
-        'The specific data retention, storage and token-handling practices of this Postiz installation have not yet been independently verified for the purposes of this policy, and this policy does not make claims about them. Questions about data held in Postiz can be directed to <a href="mailto:postbro33@gmail.com">postbro33@gmail.com</a> and will be answered to the best of the operator&rsquo;s ability.',
+        'Postiz is a separate, self-hosted service operated by the same individual. It handles authorised Facebook Page, Instagram and Threads profile connections, and post scheduling and publishing. To do this, Postiz processes the content you submit for posting and the identifiers and account details of your connected profiles needed to manage scheduled and published posts.',
+        'The specific retention, storage and token-handling practices of this Postiz installation are being manually verified before launch and are not described in detail here. Questions about data held in Postiz, and requests to access or delete it, can be directed to <a href="mailto:postbro33@gmail.com">postbro33@gmail.com</a>.',
       ],
     },
     {
       heading: 'Service providers and infrastructure',
       body: [
-        'PostBro stores its data in a hosted PostgreSQL database provided by Supabase, and runs on rented cloud virtual-server infrastructure. It communicates with Meta&rsquo;s official APIs to provide Threads functionality. Postiz is a distinct self-hosted service under the same operator. No other third-party processors are used by PostBro today; in particular, PostBro does not currently send your data to any AI/LLM provider or messaging platform as part of the live service.',
+        'PostBro stores its data in a hosted PostgreSQL database provided by Supabase, runs on rented cloud virtual-server infrastructure, and is served to the public internet through the Cloudflare proxy. It communicates with Meta&rsquo;s official APIs to provide Threads functionality. Postiz is a distinct self-hosted service under the same operator. PostBro does not currently send your data to any AI/LLM provider or messaging platform as part of the live service.',
       ],
     },
     {
@@ -192,14 +193,14 @@ export function renderDataDeletionPage(): string {
     {
       heading: 'What happens next',
       body: [
-        'Deletion requests are handled manually by the operator. The operator will verify account ownership using the information you provide, disconnect or revoke the service&rsquo;s access where possible, remove account-specific data stored in PostBro, assess any linked data held in the separately self-hosted Postiz service, and then follow up with a written confirmation by email.',
+        'Deletion requests are handled manually by the operator. The operator will verify account ownership using the information you provide, disconnect the account within the service where possible, remove account-specific data stored in PostBro, assess any linked data held in the separately self-hosted Postiz service, and then follow up with a written confirmation by email.',
         'Some records may need to be retained where necessary for legal or security reasons, and data contained in backups may persist until those backups cycle out. There is currently no automated deletion pipeline and no fixed processing-time guarantee; the operator commits to responding without undue delay.',
       ],
     },
     {
       heading: 'Removing the app on the Meta side',
       body: [
-        'You can remove this app&rsquo;s access yourself at any time. For Threads/Instagram: open the Instagram app, go to Settings &rarr; Website permissions (or Apps and websites) and remove the app. For Facebook: go to Settings &rarr; Security and login &rarr; Apps and websites, and remove the app.',
+        'You can remove this app&rsquo;s access yourself at any time. In your Facebook, Instagram or Threads account settings, look for the section listing apps or websites connected to your account (the exact menu name and location can change over time) and remove the app from that list.',
         'Revoking the app&rsquo;s access stops all future API access to your account, but it does <em>not</em> automatically delete data already stored in PostBro or Postiz. To have stored data removed, please also send a deletion request by email as described above.',
       ],
     },
