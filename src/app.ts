@@ -8,6 +8,7 @@ import {
   registerThreadsAuthRoutes,
   type ThreadsAuthRouteDeps,
 } from './modules/auth/routes';
+import { registerLegalRoutes } from './modules/legal/routes';
 
 type DefaultLoggerOptions = NonNullable<Extract<FastifyServerOptions['logger'], object>>;
 
@@ -81,6 +82,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     timestamp: new Date().toISOString(),
     timezone: config.appTimezone,
   }));
+
+  registerLegalRoutes(app);
 
   if (options.threadsAuth) {
     registerThreadsAuthRoutes(app, options.threadsAuth);
