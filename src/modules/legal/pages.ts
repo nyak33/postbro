@@ -96,7 +96,7 @@ export function renderPrivacyPage(): string {
       heading: 'What Postiz processes (posting and scheduling)',
       body: [
         'Postiz is a separate, self-hosted service operated by the same individual. It handles authorised Facebook Page, Instagram and Threads profile connections, and post scheduling and publishing. To do this, Postiz processes the content you submit for posting and the identifiers and account details of your connected profiles needed to manage scheduled and published posts.',
-        'The specific retention, storage and token-handling practices of this Postiz installation are being manually verified before launch and are not described in detail here. Questions about data held in Postiz, and requests to access or delete it, can be directed to <a href="mailto:postbro33@gmail.com">postbro33@gmail.com</a>.',
+        'The specific retention, storage and token-handling practices of this separate Postiz installation have not been independently verified for the purposes of this policy, and this policy makes no claims about them. Questions about data held in Postiz, and requests to access or delete it, can be directed to <a href="mailto:postbro33@gmail.com">postbro33@gmail.com</a>.',
       ],
     },
     {

@@ -74,7 +74,7 @@ test('privacy page carries required disclosures and no unverifiable claims', asy
     assert.ok(body.includes('Supabase'), 'discloses database processor');
     assert.ok(body.includes('encrypted'), 'discloses token encryption');
     assert.ok(
-      body.includes('being manually verified before launch'),
+      body.includes('have not been independently verified for the purposes of this policy'),
       'Postiz practices disclosed as unverified without overclaiming',
     );
     assert.ok(body.includes('Cloudflare'), 'discloses Cloudflare proxy');
