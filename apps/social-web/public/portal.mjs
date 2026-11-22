@@ -1,3 +1,4 @@
+/* global document, URL, fetch */
 /*
  * PB-SOCIAL-003B: staged invite-only login + tenant-scoped onboarding.
  * Only Supabase project URL and publishable key are public. Access tokens
