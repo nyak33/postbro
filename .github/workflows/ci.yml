@@ -36,6 +36,7 @@ jobs:
         run: |
           ./node_modules/.bin/tsc -p apps/social-web/tsconfig.json
           node --test apps/social-web/dist/tests/*.test.js
+          node --test apps/social-web/tests/*.test.mjs
 
   postgres17-rehearsal:
     name: postgres-17-11-deployment-rehearsal
