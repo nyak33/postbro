@@ -96,6 +96,7 @@ test('mock persona is never activated for production use', () => {
   const service = seeded();
   service.draftPersona('org-a', 'client-1', persona, 'MOCK_PREVIEW');
   service.approvePersona('org-a', 'client-1', 1);
+  assert.equal(service.getClient('org-a', 'client-1').status, 'PERSONA_REVIEW');
   assert.throws(() => service.getActivePersona('org-a', 'client-1'), /preview-only/);
 });
 
@@ -133,4 +134,12 @@ test('stale approval cannot activate a new persona after intake reset', () => {
   assert.equal(next.revision, 2);
   assert.throws(() => service.approvePersona('org-a', 'client-1', 1), /Stale/);
   assert.throws(() => service.getActivePersona('org-a', 'client-1'), /not approved/);
+});
+
+test('organization and client IDs are normalized before storage', () => {
+  const service = new SocialOnboarding();
+  service.createClient(' org-a ', ' client-1 ', 'STARTER');
+  assert.equal(service.listClients('org-a').length, 1);
+  assert.equal(service.getClient('org-a', 'client-1').organizationId, 'org-a');
+  assert.equal(service.getClient('org-a', 'client-1').id, 'client-1');
 });
