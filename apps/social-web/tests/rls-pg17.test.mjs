@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import process from 'node:process';
+import { URL } from 'node:url';
 import { test } from 'node:test';
 import pg from 'pg';
 
