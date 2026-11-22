@@ -97,7 +97,7 @@ export function parseSocialStageConfig(
   if (host !== '127.0.0.1' && host !== '::1') return configError();
 
   const portText = env.SOCIAL_STAGING_PORT ?? '3201';
-  if (!/^\\d+$/.test(portText)) return configError();
+  if (!/^[0-9]+$/.test(portText)) return configError();
   const port = Number(portText);
   // Never collide with the known live PostBro API port 3000.
   if (!Number.isSafeInteger(port) || port < 1024 ||
