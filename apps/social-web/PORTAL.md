@@ -18,11 +18,15 @@
 - No customer self-registration, membership creation, package modification,
   persona approval, historical import, or publishing.
 
-## Staging prerequisites (not yet authorized)
+## Pre-launch prerequisites (not yet authorized)
 
-1. Select a specific isolated Supabase project and explicitly approve the
-   existing standalone SQL migration in apps/social-web/migrations/.
-2. Configure a verified email sender, appropriate OTP expiry/rate limits and
+1. Use the **existing** active `postbro-core` Supabase project and the
+   separate `postbro_social` schema. Confirm a verified backup/restore path and
+   explicitly approve the exact standalone SQL migration before applying it.
+   No new Supabase project is needed for initial pre-launch testing.
+2. First assess any **project-wide Supabase Auth impact** on existing PostBro users;
+   do not change existing email templates or auth policies without approval.
+   Then configure a verified email sender, OTP expiry/rate limits and
    a template with {{.Token}}. Default Supabase emails may contain a magic
    link instead of the numeric code expected by this interface.
 3. Agency administrator provisions invitees and organization memberships.
@@ -48,3 +52,7 @@
 The current production Threads backend does not import, register or run
 this portal. No real emails, account invitations, live Supabase changes or
 server restarts occurred in this development task.
+
+For the current one-project test plan, see [PRELAUNCH.md](PRELAUNCH.md). The
+new Social listener stays separate from the existing Threads and Postiz
+services. The initial launch has no dedicated staging environment.
