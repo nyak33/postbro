@@ -1,0 +1,195 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import process from 'node:process';
+import { URL } from 'node:url';
+import { test } from 'node:test';
+import pg from 'pg';
+
+const DATABASE_URL = process.env.POSTGRES_17_11_URL;
+const migrationSql = readFileSync(
+  new URL('../migrations/001_social_foundation.sql', import.meta.url),
+  'utf8'
+);
+
+function ensureDisposableUrl(url) {
+  const db = new URL(url);
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(db.hostname)) {
+    throw new Error('Refusing to run Social RLS test against a non-loopback database');
+  }
+  if (db.pathname !== '/postgres') {
+    throw new Error('Refusing to run Social RLS test against a non-disposable database');
+  }
+}
+
+test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
+  skip: !DATABASE_URL ? 'POSTGRES_17_11_URL (disposable PG17 test service) not set' : false,
+  timeout: 120_000
+}, async () => {
+  ensureDisposableUrl(DATABASE_URL);
+  const { Client } = pg;
+  const admin = new Client({ connectionString: DATABASE_URL });
+  const makeClient = () => new Client({ connectionString: DATABASE_URL });
+  const clients = [];
+  await admin.connect();
+  try {
+    // CI-only fake auth schema. This is NEVER executed on the hosted project.
+    await admin.query(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated NOLOGIN;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN;
+      END IF;
+    END $$`);
+    await admin.query('CREATE SCHEMA IF NOT EXISTS auth');
+    await admin.query('CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY)');
+    await admin.query(`CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+      LANGUAGE sql STABLE AS $$
+        SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+      $$`);
+    await admin.query('GRANT USAGE ON SCHEMA auth TO authenticated');
+    await admin.query('GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated');
+
+    await admin.query(migrationSql);
+
+    const A = '10000000-0000-4000-8000-000000000001';
+    const B = '10000000-0000-4000-8000-000000000002';
+    const V = '10000000-0000-4000-8000-000000000003';
+    const orgA = '20000000-0000-4000-8000-000000000001';
+    const orgB = '20000000-0000-4000-8000-000000000002';
+    const clientA = '30000000-0000-4000-8000-000000000001';
+    const clientB = '30000000-0000-4000-8000-000000000002';
+
+    for (const u of [A, B, V]) {
+      await admin.query('INSERT INTO auth.users (id) VALUES ($1)', [u]);
+    }
+    for (const [id, name] of [[orgA, 'Alpha'], [orgB, 'Bravo']]) {
+      await admin.query('INSERT INTO postbro_social.organizations (id, display_name) VALUES ($1, $2)', [id, name]);
+    }
+    for (const [org, user, role] of [
+      [orgA, A, 'owner'], [orgB, B, 'owner'], [orgA, V, 'viewer']
+    ]) {
+      await admin.query('INSERT INTO postbro_social.memberships (organization_id, user_id, role) VALUES ($1,$2,$3)', [org, user, role]);
+    }
+    for (const [id, org, name] of [[clientA, orgA, 'Acme'], [clientB, orgB, 'Beta']]) {
+      await admin.query(
+        'INSERT INTO postbro_social.clients (id, organization_id, plan, business_name) VALUES ($1,$2,$3,$4)',
+        [id, org, 'STARTER', name]
+      );
+    }
+
+    async function asUser(userId, query, params = [], role = 'authenticated') {
+      const conn = makeClient();
+      await conn.connect();
+      clients.push(conn);
+      await conn.query('BEGIN');
+      try {
+        await conn.query('SET LOCAL ROLE ' + role);
+        if (userId) await conn.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
+        const result = await conn.query(query, params);
+        return result;
+      } finally {
+        await conn.query('ROLLBACK');
+      }
+    }
+
+    const own = await asUser(A, 'SELECT id FROM postbro_social.clients ORDER BY id');
+    assert.deepEqual(own.rows.map(x => x.id), [clientA]);
+
+    const other = await asUser(B, 'SELECT id FROM postbro_social.clients ORDER BY id');
+    assert.deepEqual(other.rows.map(x => x.id), [clientB]);
+
+    const viewer = await asUser(V, 'SELECT id FROM postbro_social.clients ORDER BY id');
+    assert.deepEqual(viewer.rows.map(x => x.id), [clientA]);
+
+    const noIdentity = await asUser(null, 'SELECT id FROM postbro_social.clients');
+    assert.equal(noIdentity.rowCount, 0);
+
+    const deniedAnon = await asUser(null, 'SELECT id FROM postbro_social.clients', [], 'anon')
+      .then(() => null, error => error);
+    assert.equal(deniedAnon?.code, '42501');
+
+    const deniedMutation = await asUser(A, 'UPDATE postbro_social.clients SET niche=$1 WHERE id=$2', ['Wrong org', clientB]);
+    assert.equal(deniedMutation.rowCount, 0);
+
+    const viewerMutation = await asUser(V, 'UPDATE postbro_social.clients SET niche=$1 WHERE id=$2', ['Unauthorized', clientA]);
+    assert.equal(viewerMutation.rowCount, 0);
+
+    const blockedPlan = await asUser(A, 'UPDATE postbro_social.clients SET plan=$1 WHERE id=$2', ['GROWTH', clientA])
+      .then(() => null, error => error);
+    assert.equal(blockedPlan?.code, '42501');
+
+    const blockedMembership = await asUser(A,
+      'INSERT INTO postbro_social.memberships(organization_id,user_id,role) VALUES ($1,$2,$3)',
+      [orgB, A, 'owner']
+    ).then(() => null, error => error);
+    assert.equal(blockedMembership?.code, '42501');
+
+    const blockedPersona = await asUser(A,
+      'UPDATE postbro_social.clients SET persona_approved_revision=$1 WHERE id=$2',
+      [1, clientA]
+    ).then(() => null, error => error);
+    assert.equal(blockedPersona?.code, '42501');
+
+    const oversizedProfile = await asUser(A,
+      'UPDATE postbro_social.clients SET niche=$1 WHERE id=$2',
+      ['x'.repeat(1001), clientA]
+    ).then(() => null, error => error);
+    assert.equal(oversizedProfile?.code, '23514');
+
+    const forgedReady = await admin.query(
+      "UPDATE postbro_social.clients SET status='READY' WHERE id=$1",
+      [clientB]
+    ).then(() => null, error => error);
+    assert.equal(forgedReady?.code, '23514');
+
+    const orgAccess = await asUser(A, 'SELECT display_name FROM postbro_social.organizations');
+    assert.deepEqual(orgAccess.rows.map(x => x.display_name), ['Alpha']);
+    const memberAccess = await asUser(A, 'SELECT role FROM postbro_social.memberships');
+    assert.deepEqual(memberAccess.rows.map(x => x.role), ['owner']);
+
+    // Simulate already approved persona before any client-initiated update.
+    await admin.query(`UPDATE postbro_social.clients
+      SET persona_revision=1, persona_draft='{"summary":"Old"}',
+          persona_approved_revision=1, persona_approved_at=now(), status='READY',
+          history_consent=true, history_decision_recorded=true
+      WHERE id=$1`, [clientA]);
+
+    const changed = await asUser(A,
+      'UPDATE postbro_social.clients SET tone=$1 WHERE id=$2 RETURNING id, status, persona_revision',
+      ['New tone', clientA]
+    );
+    assert.equal(changed.rowCount, 1);
+    assert.equal(changed.rows[0].status, 'ONBOARDING');
+    assert.equal(changed.rows[0].persona_revision, 2);
+    // Change inside a committed transaction to test persisted trigger state.
+    await admin.query('UPDATE postbro_social.clients SET tone=$1 WHERE id=$2', ['New tone', clientA]);
+    const updated = await admin.query(`SELECT persona_revision, persona_draft,
+       persona_approved_revision, persona_approved_at, history_consent,
+       history_decision_recorded, status FROM postbro_social.clients WHERE id=$1`, [clientA]);
+    assert.equal(updated.rows[0].persona_revision, 2);
+    assert.equal(updated.rows[0].persona_draft, null);
+    assert.equal(updated.rows[0].persona_approved_revision, null);
+    assert.equal(updated.rows[0].persona_approved_at, null);
+    assert.equal(updated.rows[0].history_consent, false);
+    assert.equal(updated.rows[0].history_decision_recorded, false);
+    assert.equal(updated.rows[0].status, 'ONBOARDING');
+
+    // Four clients exist, then two independent transactions race for slot five.
+    await admin.query('INSERT INTO postbro_social.clients (organization_id,plan,business_name) VALUES ($1,$2,$3)', [orgA, 'STARTER', 'Gamma']);
+    await admin.query('INSERT INTO postbro_social.clients (organization_id,plan,business_name) VALUES ($1,$2,$3)', [orgA, 'STARTER', 'Delta']);
+    const attempts = await Promise.allSettled([1, 2].map(async n => {
+      const conn = makeClient();
+      clients.push(conn);
+      await conn.connect();
+      return conn.query('INSERT INTO postbro_social.clients (organization_id,plan,business_name) VALUES ($1,$2,$3)', [orgA, 'STARTER', 'Contestant ' + n]);
+    }));
+    assert.equal(attempts.filter(a => a.status === 'fulfilled').length, 1);
+    assert.equal(attempts.filter(a => a.status === 'rejected' && a.reason.code === '23514').length, 1);
+    const count = await admin.query('SELECT count(*)::int AS total FROM postbro_social.clients');
+    assert.equal(count.rows[0].total, 5);
+  } finally {
+    await Promise.allSettled(clients.map(x => x.end()));
+    await admin.end();
+  }
+});
