@@ -14,6 +14,14 @@ Migrate the previously developed **responsive onboarding interface** from isolat
 4. Show a reviewable/editable proposed Persona V1 preview. Future product flow requires actual engine compilation and explicit client approval.
 5. Make it obvious that this stage is a **local preview** with no permanent account, login, approval record or publishing action.
 
+## Package wording used by the UI preview
+
+The approved PostBro Social pilot package design is **Starter: 35 unique weekly
+content pieces** and **Growth: 56 unique weekly content pieces** (including
+FB/IG cross-posting and Threads). This source-of-truth note is here to anchor
+the quantities displayed in the *local preview*. The preview does not calculate
+pricing, activate subscriptions or impose production publishing quotas.
+
 ## Constraints
 
 - **No deployment**, no live API calls, no Postiz/Meta integration, no production DB migrations and no production service changes.
