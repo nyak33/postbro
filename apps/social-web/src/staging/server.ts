@@ -4,15 +4,13 @@
  *
  * This executable is NOT part of root src/index.ts or any live service.
  */
-import { Pool } from 'pg';
+import pg, { type Pool as PoolType } from 'pg';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSocialPortalApp } from '../http/portal.js';
-import { parseSocialStageConfig } from './config.js';
+import { parseSocialStageConfig, type SocialStageConfig } from './config.js';
 
-export async function startSocialStaging(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  const config = parseSocialStageConfig(env);
-  const pool = new Pool(config.databasePool);
+export function buildStagingApp(config: SocialStageConfig, pool: PoolType) {
   const app = buildSocialPortalApp({
     pool,
     auth: {
@@ -27,6 +25,14 @@ export async function startSocialStaging(env: NodeJS.ProcessEnv = process.env): 
     service: 'postbro-social-staging',
     check: 'process_only',
   }));
+
+  return app;
+}
+
+export async function startSocialStaging(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const config = parseSocialStageConfig(env);
+  const pool = new pg.Pool(config.databasePool);
+  const app = buildStagingApp(config, pool);
 
   let shuttingDown = false;
   const stop = async (): Promise<void> => {
