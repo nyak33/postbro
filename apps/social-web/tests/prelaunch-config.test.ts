@@ -4,7 +4,7 @@ import { parseSocialPrelaunchConfig } from '../src/prelaunch/config.js';
 import { buildPrelaunchApp } from '../src/prelaunch/server.js';
 import type { Pool } from 'pg';
 
-const PROJECT = 'a'.repeat(20);
+const PROJECT = 'nqjlgalyjxifzisitzfa';
 const OTHER = 'b'.repeat(20);
 
 function goodEnv(): NodeJS.ProcessEnv {
@@ -40,6 +40,14 @@ test('missing standalone config never falls back to PostBro production DATABASE_
     DATABASE_URL: 'postgresql://test:test@localhost:5432/postgres',
     SOCIAL_PRELAUNCH_PROJECT_REF: PROJECT,
   }), /isolated Social prelaunch configuration/);
+});
+
+test('reject alternative Supabase project even with valid shared-project acknowledgement', () => {
+  const env = goodEnv();
+  env.SOCIAL_PRELAUNCH_PROJECT_REF = OTHER;
+  env.SOCIAL_PRELAUNCH_SUPABASE_URL = 'https://' + OTHER + '.supabase.co';
+  env.SOCIAL_PRELAUNCH_DATABASE_URL = 'postgresql://postgres:fake-test-only-password@db.' + OTHER + '.supabase.co/postgres';
+  assert.throws(() => parseSocialPrelaunchConfig(env), /Social prelaunch configuration/);
 });
 
 test('reject missing shared-project acknowledgement', () => {
