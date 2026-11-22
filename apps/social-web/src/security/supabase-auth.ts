@@ -24,7 +24,7 @@ export class SocialUnauthorizedError extends Error {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BEARER_RE = /^Bearer ([A-Za-z0-9._~+/-]{20,4096}={0,2})$/;
+const BEARER_RE = /^Bearer ([A-Za-z0-9._~+/_-]{20,4096}={0,2})$/;
 
 export function extractSocialBearer(authorization: string | undefined): string {
   if (!authorization || typeof authorization !== 'string') {
