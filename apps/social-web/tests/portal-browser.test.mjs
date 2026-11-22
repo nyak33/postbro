@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import { test } from 'node:test';
 
 const html = readFileSync(new URL('../public/portal.html', import.meta.url), 'utf8');
