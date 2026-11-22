@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="PostBro Social local onboarding interface preview. Not connected to production.">
+  <title>PostBro Social — Client Onboarding Preview</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header>
+    <div class="brand-heading">
+      <h1>PostBro Social <span class="heading-subtitle">/ Client onboarding</span></h1>
+      <p class="header-caption">Plan · Brand · Persona</p>
+    </div>
+    <span class="tag">LOCAL PREVIEW · NOT DEPLOYED</span>
+    <span class="header-spacer"></span>
+    <button class="ghost" type="button" id="clearPreview">Clear preview</button>
+  </header>
+
+  <main>
+    <div class="banner" role="note">
+      <strong>Preview mode.</strong> Your information stays in this browser tab's memory.
+      Nothing is submitted, saved to a server, connected to Meta or scheduled in Postiz.
+      The persona text is generated from a <strong>local template, not AI</strong>.
+    </div>
+
+    <section class="card" aria-labelledby="packageHeading">
+      <div class="card-title-row">
+        <h2 id="packageHeading">Choose your package</h2>
+        <span class="pill">5 client slots · Pilot</span>
+      </div>
+      <p class="muted">This selection is for preview only. It does not create a subscription or customer account.</p>
+      <label class="field compact-field">Package
+        <select id="plan" aria-label="Package">
+          <option value="STARTER">Starter</option>
+          <option value="GROWTH">Growth</option>
+        </select>
+      </label>
+      <p class="muted" id="planDescription">Starter · 35 unique weekly content pieces.</p>
+    </section>
+
+    <nav aria-label="Onboarding progress" class="progress-container">
+      <div class="steps" id="steps"></div>
+    </nav>
+    <p role="status" aria-live="polite" id="notice" class="status-line">Complete your brand profile to begin.</p>
+
+    <section class="card" id="panelBrand" aria-labelledby="brandHeading">
+      <div class="card-title-row">
+        <h2 id="brandHeading">1 · Brand intake</h2>
+        <span class="pill" id="brandStatus">Not saved</span>
+      </div>
+      <p class="muted">Tell PostBro how your business should sound. You can change these details later.</p>
+      <form id="brandForm">
+        <div class="row">
+          <label class="field">Business name
+            <input id="businessName" name="businessName" autocomplete="organization" maxlength="1000" required placeholder="e.g. Acme Coffee">
+          </label>
+          <label class="field">Niche / industry
+            <input id="niche" name="niche" maxlength="1000" required placeholder="e.g. specialty coffee">
+          </label>
+        </div>
+        <div class="row">
+          <label class="field">Target audience
+            <input id="audience" name="audience" maxlength="1000" required placeholder="e.g. home brewers">
+          </label>
+          <label class="field">Preferred language
+            <input id="language" name="language" maxlength="1000" required placeholder="e.g. Malay + English">
+          </label>
+        </div>
+        <div class="row">
+          <label class="field">Brand tone
+            <input id="tone" name="tone" maxlength="1000" required placeholder="e.g. friendly, witty, practical">
+          </label>
+          <label class="field">Things to avoid
+            <input id="restrictions" name="restrictions" maxlength="1000" placeholder="e.g. unverified claims">
+          </label>
+        </div>
+        <label class="field">Sample posts (optional, one per line)
+          <textarea id="samplePosts" name="samplePosts" maxlength="1000" rows="3" placeholder="Paste one or two examples of your writing."></textarea>
+        </label>
+        <div class="actions">
+          <button type="submit">Save brand intake</button>
+          <span class="muted">Changing the brand profile clears the persona preview.</span>
+        </div>
+      </form>
+    </section>
+
+    <section class="card" id="panelHistory" aria-labelledby="historyHeading">
+      <div class="card-title-row">
+        <h2 id="historyHeading">2 · Historical content analysis</h2>
+        <span class="pill" id="historyStatus">Optional</span>
+      </div>
+      <p class="muted">Later, PostBro may analyse posts from your connected accounts to suggest a writing persona. This is strictly optional.</p>
+      <form id="historyForm">
+        <label class="consent-row">
+          <input type="checkbox" id="optedIn" name="optedIn">
+          <span>I would like PostBro to analyse my own previous social posts when this feature becomes available.</span>
+        </label>
+        <p class="muted">This preview records your choice in memory only. It does not request Meta permissions or read any posts.</p>
+        <button type="submit" id="saveHistory" disabled>Record choice and continue</button>
+      </form>
+    </section>
+
+    <section class="card" id="panelPersona" aria-labelledby="personaHeading">
+      <div class="card-title-row">
+        <h2 id="personaHeading">3 · Persona draft</h2>
+        <span class="pill">LOCAL TEMPLATE · NOT AI</span>
+      </div>
+      <p class="muted">Generate a sample Persona V1 from your own brand answers. The real product will use the Persona Engine.</p>
+      <button type="button" id="genDraft" disabled>Generate local persona preview</button>
+      <p class="muted" id="draftStatus">No preview yet.</p>
+    </section>
+
+    <section class="card" id="panelReview" aria-labelledby="reviewHeading" hidden>
+      <div class="card-title-row">
+        <h2 id="reviewHeading">4 · Review and edit persona</h2>
+        <span class="pill" id="revisionStatus">Draft</span>
+      </div>
+      <p class="muted">Review the example below. Editing creates a new revision and invalidates an earlier simulated approval.</p>
+      <div id="traits" class="traits" aria-label="Persona traits"></div>
+      <form id="personaEditForm">
+        <label class="field">Persona summary
+          <textarea id="personaSummary" rows="3" maxlength="1000" required></textarea>
+        </label>
+        <label class="field">Writing style
+          <textarea id="personaStyle" rows="2" maxlength="1000" required></textarea>
+        </label>
+        <label class="field">Content pillars
+          <textarea id="personaPillars" rows="2" maxlength="1000" required></textarea>
+        </label>
+        <div class="actions">
+          <button type="submit" class="ghost" id="saveEdit">Save new revision</button>
+          <button type="button" id="approvePreview">Simulate approval</button>
+        </div>
+      </form>
+      <p class="muted">Simulation only: nothing is activated or stored as a client-approved persona.</p>
+    </section>
+
+    <section class="card" id="panelComplete" aria-labelledby="completeHeading" hidden>
+      <div class="card-title-row">
+        <h2 id="completeHeading">5 · Preview complete</h2>
+        <span class="pill ok">SIMULATED</span>
+      </div>
+      <p>Your sample onboarding is complete. The persona has <strong>not</strong> been saved, approved on a server, or activated for publishing.</p>
+      <p class="muted">Next development milestones: authenticated client accounts, durable storage, actual Persona Engine integration and Postiz organisation mapping.</p>
+      <button type="button" class="ghost" id="restartPreview">Start a new preview</button>
+    </section>
+
+    <footer class="muted">
+      PostBro Social · Development-only interface · No API calls or browser storage
+    </footer>
+  </main>
+</body>
+</html>
