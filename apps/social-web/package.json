@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Isolated PostBro Social onboarding, portal and non-deployed staging runner",
+  "description": "Isolated PostBro Social onboarding, portal and non-deployed prelaunch runner",
   "engines": {
     "node": ">=22"
   },
@@ -11,6 +11,6 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/tests/*.test.js tests/*.test.mjs",
-    "start:staging": "node dist/src/staging/server.js"
+    "start:prelaunch": "node dist/src/prelaunch/server.js"
   }
 }
