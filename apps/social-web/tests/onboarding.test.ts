@@ -84,8 +84,10 @@ test('changing intake or historical-data consent invalidates prior approval', ()
   service.approvePersona('org-a', 'client-1', 1);
   service.setHistoryConsent('org-a', 'client-1', true);
   assert.throws(() => service.getActivePersona('org-a', 'client-1'), /not approved/);
-  service.draftPersona('org-a', 'client-1', persona, 'EXTERNAL_ENGINE');
-  service.approvePersona('org-a', 'client-1', 1);
+  const afterConsent = service.draftPersona('org-a', 'client-1', persona, 'EXTERNAL_ENGINE');
+  assert.equal(afterConsent.revision, 2);
+  assert.throws(() => service.approvePersona('org-a', 'client-1', 1), /Stale/);
+  service.approvePersona('org-a', 'client-1', 2);
   service.saveIntake('org-a', 'client-1', { ...intake, tone: 'Formal' });
   assert.throws(() => service.getActivePersona('org-a', 'client-1'), /not approved/);
 });
@@ -121,4 +123,14 @@ test('invalid draft and edits cannot partially mutate prior valid persona', () =
 test('identifier separator cannot be used to escape organization namespace', () => {
   const service = seeded();
   assert.throws(() => service.getClient('org-a::evil', 'client-1'), /Invalid organizationId/);
+});
+
+test('stale approval cannot activate a new persona after intake reset', () => {
+  const service = seeded();
+  service.draftPersona('org-a', 'client-1', persona, 'EXTERNAL_ENGINE');
+  service.saveIntake('org-a', 'client-1', { ...intake, tone: 'Formal' });
+  const next = service.draftPersona('org-a', 'client-1', persona, 'EXTERNAL_ENGINE');
+  assert.equal(next.revision, 2);
+  assert.throws(() => service.approvePersona('org-a', 'client-1', 1), /Stale/);
+  assert.throws(() => service.getActivePersona('org-a', 'client-1'), /not approved/);
 });
