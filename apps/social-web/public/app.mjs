@@ -47,7 +47,7 @@ function renderProgress() {
   target.replaceChildren(...pills);
 }
 
-function render() {
+function render({ syncPersonaInputs = false } = {}) {
   $('plan').value = state.plan;
   $('planDescription').textContent = state.plan === 'GROWTH'
     ? 'Growth · 56 unique weekly content pieces.'
@@ -69,9 +69,11 @@ function render() {
     $('revisionStatus').textContent = p.status === 'PREVIEW_APPROVED'
       ? 'Simulated approval · revision ' + p.revision
       : 'Draft · revision ' + p.revision;
-    $('personaSummary').value = p.summary;
-    $('personaStyle').value = p.writingStyle;
-    $('personaPillars').value = p.contentPillars;
+    if (syncPersonaInputs) {
+      $('personaSummary').value = p.summary;
+      $('personaStyle').value = p.writingStyle;
+      $('personaPillars').value = p.contentPillars;
+    }
     $('approvePreview').disabled = p.status !== 'DRAFT';
     const traits = p.traits.map((item) => {
       const node = document.createElement('span');
@@ -132,7 +134,7 @@ $('historyForm').addEventListener('submit', (event) => {
 
 $('genDraft').addEventListener('click', () => safely(() => {
   state = draftPersonaPreview(state);
-  render();
+  render({ syncPersonaInputs: true });
   status('A local template preview is ready for review. This is not an AI-generated persona.');
 }));
 
@@ -144,13 +146,20 @@ $('personaEditForm').addEventListener('submit', (event) => {
       writingStyle: $('personaStyle').value,
       contentPillars: $('personaPillars').value
     });
-    render();
+    render({ syncPersonaInputs: true });
     status('Changes saved in this browser tab. Previous simulated approval invalidated.');
   });
 });
 
 $('approvePreview').addEventListener('click', () => safely(() => {
-  state = simulateApproval(state, state.persona?.revision);
+  const persona = state.persona;
+  if (!persona) throw new Error('Generate a persona preview first');
+  if ($('personaSummary').value.trim() !== persona.summary ||
+      $('personaStyle').value.trim() !== persona.writingStyle ||
+      $('personaPillars').value.trim() !== persona.contentPillars) {
+    throw new Error('Save your edits before simulating approval.');
+  }
+  state = simulateApproval(state, persona.revision);
   render();
   status('Preview complete. No actual persona was approved or activated.');
 }));
