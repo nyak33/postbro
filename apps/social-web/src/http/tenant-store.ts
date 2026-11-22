@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FIELDS = 'id, organization_id AS "organizationId", plan, business_name AS "businessName", ' +
   'niche, audience, language, tone, restrictions, sample_posts AS "samplePosts", ' +
   'history_consent AS "historyConsent", history_decision_recorded AS "historyDecisionRecorded", ' +
