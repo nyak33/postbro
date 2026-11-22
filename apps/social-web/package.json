@@ -1,0 +1,13 @@
+{
+  "name": "@postbro/social-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated, non-deployed PostBro Social onboarding foundation",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test dist/tests/*.test.js"
+  }
+}
