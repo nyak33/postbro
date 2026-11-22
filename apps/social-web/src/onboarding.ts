@@ -108,7 +108,9 @@ export class SocialOnboarding {
   }
 
   createClient(organizationId: string, clientId: string, plan: Plan): SocialClient {
-    const key = this.key(organizationId, clientId);
+    const org = requireId(organizationId, 'organizationId');
+    const normalizedClientId = requireId(clientId, 'clientId');
+    const key = this.key(org, normalizedClientId);
     if (plan !== 'STARTER' && plan !== 'GROWTH') {
       throw new OnboardingError('Invalid plan');
     }
@@ -117,8 +119,8 @@ export class SocialOnboarding {
       throw new OnboardingError('Five-client pilot limit reached');
     }
     const client: SocialClient = {
-      id: clientId,
-      organizationId,
+      id: normalizedClientId,
+      organizationId: org,
       plan,
       status: 'ONBOARDING',
       intake: null,
@@ -221,7 +223,7 @@ export class SocialOnboarding {
     if (client.persona.status !== 'DRAFT') throw new OnboardingError('Already approved');
     client.persona.status = 'APPROVED';
     client.persona.approvedAt = new Date().toISOString();
-    client.status = 'READY';
+    client.status = client.persona.source === 'MOCK_PREVIEW' ? 'PERSONA_REVIEW' : 'READY';
     return structuredClone(client.persona);
   }
 
