@@ -1,5 +1,16 @@
 # PostBro — Threads Automation
 
+> **Repository direction (22 Nov 2026):** This public repository is transitioning
+> incrementally toward a modular PostBro monorepo. The existing root backend remains
+> the deployed Threads engagement service; `apps/social-web/` is a separate,
+> **non-deployed** Social onboarding foundation. It is not customer-ready.
+> Postiz remains in its own repository and owns publishing/scheduling.
+> Private Persona Engine implementation is **not** included here.
+>
+> [Social onboarding foundation](apps/social-web/README.md) |
+> [Development scope and acceptance tests](docs/tasks/PB-SOCIAL-001.md)
+
+
 Threads-only **engagement automation** backend. Postiz owns publishing and scheduling; PostBro consumes the separate Persona Engine and Reply Decision Engine for safe inbound engagement.
 
 > **Project stage:** P0 foundation in progress. A minimal TypeScript/Fastify API scaffold, `GET /health`, configuration validation, unit tests, GitHub Actions CI and the server-side Threads OAuth start/callback implementation are in place. On 2026-11-15 a live user OAuth callback completed with `status=connected, accountId=1, operatorId=1, scopesVerified=false, grantedScopes=[]` — OAuth connectivity is observed, but granted scopes and engagement capability are NOT yet positively verified and are not claimed. The PostBro product Telegram bot, persona binding, hosted Supabase runtime and engagement automation remain unverified.
