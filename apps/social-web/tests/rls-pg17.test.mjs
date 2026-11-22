@@ -148,6 +148,31 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     const memberAccess = await asUser(A, 'SELECT role FROM postbro_social.memberships');
     assert.deepEqual(memberAccess.rows.map(x => x.role), ['owner']);
 
+    // Exercise the new real RLS tenant-store against the disposable PG17 DB.
+    // This checks actual PostgreSQL privileges, not only a mocked SQL adapter.
+    const store = await import('../dist/src/http/tenant-store.js');
+    const tenantPool = new pg.Pool({ connectionString: DATABASE_URL });
+    try {
+      const alpha = await store.listTenantClients(tenantPool, A);
+      const bravo = await store.listTenantClients(tenantPool, B);
+      assert.deepEqual(alpha.map(client => client.id), [clientA]);
+      assert.deepEqual(bravo.map(client => client.id), [clientB]);
+      assert.equal(await store.getTenantClient(tenantPool, A, clientB), null);
+      const validBrand = {
+        businessName: 'Acme', niche: 'Coffee', audience: 'Adults',
+        language: 'English', tone: 'Warm', restrictions: '', samplePosts: ''
+      };
+      assert.equal(await store.saveTenantBrand(tenantPool, A, clientB, validBrand), null);
+      assert.equal(await store.saveTenantBrand(tenantPool, V, clientA, validBrand), null);
+      const updatedBrand = await store.saveTenantBrand(tenantPool, A, clientA, validBrand);
+      assert.equal(updatedBrand.id, clientA);
+      const updatedHistory = await store.saveTenantHistory(tenantPool, A, clientA, { optedIn: false });
+      assert.equal(updatedHistory.historyDecisionRecorded, true);
+      assert.equal(updatedHistory.historyConsent, false);
+    } finally {
+      await tenantPool.end();
+    }
+
     // Simulate already approved persona before any client-initiated update.
     await admin.query(`UPDATE postbro_social.clients
       SET persona_revision=1, persona_draft='{"summary":"Old"}',
