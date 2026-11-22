@@ -9,10 +9,10 @@ import type { Pool } from 'pg';
 import {
   verifySocialIdentity, SocialUnauthorizedError,
   type SupabaseAuthOptions,
-} from '../security/supabase-auth';
+} from '../security/supabase-auth.js';
 import {
   listTenantClients, getTenantClient, saveTenantBrand, saveTenantHistory,
-} from './tenant-store';
+} from './tenant-store.js';
 
 export interface PortalDependencies {
   pool: Pick<Pool, 'connect'>;
@@ -75,7 +75,9 @@ export function buildSocialPortalApp(deps: PortalDependencies): FastifyInstance 
     if (error instanceof Error && error.message.startsWith('invalid_')) {
       return reply.code(400).send({ error: 'invalid_request' });
     }
-    if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
+    if (error instanceof Error && 'statusCode' in error &&
+        typeof error.statusCode === 'number' &&
+        error.statusCode >= 400 && error.statusCode < 500) {
       return reply.code(400).send({ error: 'invalid_request' });
     }
     return reply.code(503).send({ error: 'temporarily_unavailable' });
