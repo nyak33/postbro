@@ -164,9 +164,11 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       };
       assert.equal(await store.saveTenantBrand(tenantPool, A, clientB, validBrand), null);
       assert.equal(await store.saveTenantBrand(tenantPool, V, clientA, validBrand), null);
-      const updatedBrand = await store.saveTenantBrand(tenantPool, A, clientA, validBrand);
-      assert.equal(updatedBrand.id, clientA);
-      const updatedHistory = await store.saveTenantHistory(tenantPool, A, clientA, { optedIn: false });
+      const updatedBrand = await store.saveTenantBrand(tenantPool, B, clientB, {
+        ...validBrand, businessName: 'Beta'
+      });
+      assert.equal(updatedBrand.id, clientB);
+      const updatedHistory = await store.saveTenantHistory(tenantPool, B, clientB, { optedIn: false });
       assert.equal(updatedHistory.historyDecisionRecorded, true);
       assert.equal(updatedHistory.historyConsent, false);
     } finally {
