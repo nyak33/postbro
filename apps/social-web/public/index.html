@@ -53,10 +53,10 @@
         <span class="pill" id="brandStatus">Not saved</span>
       </div>
       <p class="muted">Tell PostBro how your business should sound. You can change these details later.</p>
-      <form id="brandForm">
+      <form id="brandForm" autocomplete="off">
         <div class="row">
           <label class="field">Business name
-            <input id="businessName" name="businessName" autocomplete="organization" maxlength="1000" required placeholder="e.g. Acme Coffee">
+            <input id="businessName" name="businessName" autocomplete="off" maxlength="1000" required placeholder="e.g. Acme Coffee">
           </label>
           <label class="field">Niche / industry
             <input id="niche" name="niche" maxlength="1000" required placeholder="e.g. specialty coffee">
@@ -81,6 +81,7 @@
         <label class="field">Sample posts (optional, one per line)
           <textarea id="samplePosts" name="samplePosts" maxlength="1000" rows="3" placeholder="Paste one or two examples of your writing."></textarea>
         </label>
+        <p class="muted">Sample posts are for a future AI analysis feature; this local template does not analyse them.</p>
         <div class="actions">
           <button type="submit">Save brand intake</button>
           <span class="muted">Changing the brand profile clears the persona preview.</span>
@@ -121,7 +122,7 @@
       </div>
       <p class="muted">Review the example below. Editing creates a new revision and invalidates an earlier simulated approval.</p>
       <div id="traits" class="traits" aria-label="Persona traits"></div>
-      <form id="personaEditForm">
+      <form id="personaEditForm" autocomplete="off">
         <label class="field">Persona summary
           <textarea id="personaSummary" rows="3" maxlength="1000" required></textarea>
         </label>
@@ -150,7 +151,7 @@
     </section>
 
     <footer class="muted">
-      PostBro Social · Development-only interface · No API calls or browser storage
+      PostBro Social · Development-only interface · No API calls or application-managed browser storage
     </footer>
   </main>
 </body>
