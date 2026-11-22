@@ -44,6 +44,7 @@ export interface SocialClient {
   analyzePreviousPosts: boolean;
   previousPostsFetched: false; // Historical import is not implemented yet.
   persona: PersonaReview | null;
+  personaRevision: number; // Never reset across intake or consent changes.
 }
 
 export interface PersonaEnginePort {
@@ -123,7 +124,8 @@ export class SocialOnboarding {
       intake: null,
       analyzePreviousPosts: false,
       previousPostsFetched: false,
-      persona: null
+      persona: null,
+      personaRevision: 0
     };
     this.clients.set(key, client);
     return structuredClone(client);
@@ -175,7 +177,8 @@ export class SocialOnboarding {
     }
     const client = this.find(organizationId, clientId);
     if (!client.intake) throw new OnboardingError('Brand intake required');
-    const revision = (client.persona?.revision ?? 0) + 1;
+    const revision = client.personaRevision + 1;
+    client.personaRevision = revision;
     client.persona = {
       revision,
       source,
@@ -198,9 +201,10 @@ export class SocialOnboarding {
     if (!client.persona || client.persona.revision !== expectedRevision) {
       throw new OnboardingError('Stale persona revision');
     }
+    client.personaRevision = expectedRevision + 1;
     client.persona = {
       ...client.persona,
-      revision: expectedRevision + 1,
+      revision: client.personaRevision,
       status: 'DRAFT',
       approvedAt: null,
       proposal: cleanProposal
