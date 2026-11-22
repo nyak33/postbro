@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseSocialStageConfig } from '../src/staging/config.js';
+import { buildStagingApp } from '../src/staging/server.js';
+import type { Pool } from 'pg';
 
 const PROJECT = 'a'.repeat(20);
 const OTHER = 'b'.repeat(20);
@@ -104,5 +106,33 @@ test('reject secret keys, malicious host names and URL userinfo', () => {
     const env = goodEnv();
     env.SOCIAL_STAGING_SUPABASE_URL = authUrl;
     assert.throws(() => parseSocialStageConfig(env), /isolated Social staging/);
+  }
+});
+
+test('staging process health is local-only intent and does not contact DB or Auth', async () => {
+  const config = parseSocialStageConfig(goodEnv());
+  const app = buildStagingApp(config, {} as Pool);
+  try {
+    const health = await app.inject({ method: 'GET', url: '/social/health' });
+    assert.equal(health.statusCode, 200);
+    assert.deepEqual(health.json(), {
+      status: 'configured',
+      service: 'postbro-social-staging',
+      check: 'process_only',
+    });
+    const portal = await app.inject({ method: 'GET', url: '/social/' });
+    assert.equal(portal.statusCode, 200);
+    assert.match(portal.body, /Invite-only access/);
+    const blocked = await app.inject({ method: 'GET', url: '/api/social/clients' });
+    assert.equal(blocked.statusCode, 401);
+    const configResponse = await app.inject({ method: 'GET', url: '/api/social/config' });
+    assert.equal(configResponse.statusCode, 200);
+    assert.deepEqual(configResponse.json(), {
+      supabaseUrl: config.supabaseUrl,
+      publishableKey: config.publishableKey,
+    });
+    assert.doesNotMatch(configResponse.body, /password|DATABASE_URL|service_role/);
+  } finally {
+    await app.close();
   }
 });
