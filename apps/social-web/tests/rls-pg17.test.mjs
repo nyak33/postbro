@@ -131,6 +131,18 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     ).then(() => null, error => error);
     assert.equal(blockedPersona?.code, '42501');
 
+    const oversizedProfile = await asUser(A,
+      'UPDATE postbro_social.clients SET niche=$1 WHERE id=$2',
+      ['x'.repeat(1001), clientA]
+    ).then(() => null, error => error);
+    assert.equal(oversizedProfile?.code, '23514');
+
+    const forgedReady = await admin.query(
+      "UPDATE postbro_social.clients SET status='READY' WHERE id=$1",
+      [clientB]
+    ).then(() => null, error => error);
+    assert.equal(forgedReady?.code, '23514');
+
     const orgAccess = await asUser(A, 'SELECT display_name FROM postbro_social.organizations');
     assert.deepEqual(orgAccess.rows.map(x => x.display_name), ['Alpha']);
     const memberAccess = await asUser(A, 'SELECT role FROM postbro_social.memberships');
