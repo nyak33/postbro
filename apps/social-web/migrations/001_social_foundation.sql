@@ -28,12 +28,12 @@ CREATE TABLE postbro_social.clients (
   organization_id uuid NOT NULL REFERENCES postbro_social.organizations(id) ON DELETE RESTRICT,
   plan text NOT NULL CHECK (plan IN ('STARTER', 'GROWTH')),
   business_name text NOT NULL CHECK (length(trim(business_name)) BETWEEN 1 AND 200),
-  niche text NOT NULL DEFAULT '',
-  audience text NOT NULL DEFAULT '',
-  language text NOT NULL DEFAULT '',
-  tone text NOT NULL DEFAULT '',
-  restrictions text NOT NULL DEFAULT '',
-  sample_posts text NOT NULL DEFAULT '',
+  niche text NOT NULL DEFAULT '' CHECK (length(niche) <= 1000),
+  audience text NOT NULL DEFAULT '' CHECK (length(audience) <= 1000),
+  language text NOT NULL DEFAULT '' CHECK (length(language) <= 1000),
+  tone text NOT NULL DEFAULT '' CHECK (length(tone) <= 1000),
+  restrictions text NOT NULL DEFAULT '' CHECK (length(restrictions) <= 1000),
+  sample_posts text NOT NULL DEFAULT '' CHECK (length(sample_posts) <= 1000),
   history_consent boolean NOT NULL DEFAULT false,
   history_decision_recorded boolean NOT NULL DEFAULT false,
   persona_revision integer NOT NULL DEFAULT 0 CHECK (persona_revision >= 0),
@@ -44,7 +44,7 @@ CREATE TABLE postbro_social.clients (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT persona_approval_consistent CHECK (
-    (persona_approved_revision IS NULL AND persona_approved_at IS NULL)
+    (persona_approved_revision IS NULL AND persona_approved_at IS NULL AND status <> 'READY')
     OR (persona_approved_revision = persona_revision AND persona_approved_at IS NOT NULL AND status = 'READY')
   )
 );
