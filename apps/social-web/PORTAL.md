@@ -18,7 +18,7 @@
 - No customer self-registration, membership creation, package modification,
   persona approval, historical import, or publishing.
 
-## Staging prerequisites (not yet authorized)
+## Pre-launch prerequisites (not yet authorized)
 
 1. Select a specific isolated Supabase project and explicitly approve the
    existing standalone SQL migration in apps/social-web/migrations/.
