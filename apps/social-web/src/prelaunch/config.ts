@@ -17,6 +17,8 @@ export interface SocialPrelaunchConfig {
 }
 
 const PROJECT_REF = /^[a-z0-9]{20}$/;
+// The owner chose to dogfood on this existing active Supabase project only.
+const APPROVED_SHARED_PROJECT_REF = 'nqjlgalyjxifzisitzfa';
 
 function configError(): never {
   throw new Error('Invalid or incomplete isolated Social prelaunch configuration');
@@ -88,6 +90,7 @@ export function parseSocialPrelaunchConfig(
   const connectionString = env.SOCIAL_PRELAUNCH_DATABASE_URL ?? '';
 
   if (!PROJECT_REF.test(projectRef) ||
+      projectRef !== APPROVED_SHARED_PROJECT_REF ||
       !publishableKey.startsWith('sb_publishable_') ||
       publishableKey.length < 30 ||
       !connectionString || !supabaseUrl) return configError();
