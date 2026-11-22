@@ -30,7 +30,7 @@ test('real UI controller preserves unsaved edits and requires saving before appr
     },
     createElement() { return element(); }
   };
-  const $ = (id) => elements.get(id);
+  const $ = (id) => globalThis.document.getElementById(id);
   const fire = (id, type) => {
     const fn = $(id).handlers.get(type);
     assert.ok(fn, 'handler for ' + id + ' / ' + type);
