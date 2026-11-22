@@ -23,8 +23,9 @@ Threads engagement backend and separate Postiz instance unchanged.
 - Support 5-client pilot cap, two plans, brand intake, optional historical analysis consent,
   versioned review and explicit persona approval.
 - Keep history fetching unavailable until verified Meta scopes and a client opt-in.
-- Do not change root `package.json`, lockfile, CI, migrations or production paths in this
-  first additive step; full npm-workspaces migration is a later reviewed change.
+- Keep root `package.json`, lockfile, migrations and production paths unchanged.
+  Add a CI step that verifies this isolated module; the full npm-workspaces
+  migration is a later reviewed change.
 
 ## Acceptance
 
