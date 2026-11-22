@@ -32,6 +32,11 @@ jobs:
       - name: Build and run unit/database tests
         run: npm test
 
+      - name: Build and test Social onboarding foundation
+        run: |
+          ./node_modules/.bin/tsc -p apps/social-web/tsconfig.json
+          node --test apps/social-web/dist/tests/*.test.js
+
   postgres17-rehearsal:
     name: postgres-17-11-deployment-rehearsal
     runs-on: ubuntu-latest
