@@ -81,6 +81,8 @@ jobs:
         run: bash scripts/ci/pg17-backup-restore.sh
         
       - name: Verify Social RLS, tenant isolation and pilot cap on disposable PostgreSQL 17.11
-        run: node --test apps/social-web/tests/rls-pg17.test.mjs
+        run: |
+          ./node_modules/.bin/tsc -p apps/social-web/tsconfig.json
+          node --test apps/social-web/tests/rls-pg17.test.mjs
         env:
           POSTGRES_17_11_URL: postgres://postgres:postgres@localhost:5432/postgres

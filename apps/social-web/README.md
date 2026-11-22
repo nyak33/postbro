@@ -38,6 +38,21 @@ python3 -m http.server 8765 --bind 127.0.0.1
 Use a disposable test profile. This local static server is not suitable for
 customer access or Internet exposure. Do not deploy it to the VPS yet.
 
+## Invite-only client portal (development source)
+
+Phase PB-SOCIAL-003B adds a separate, **non-deployed** portal under
+`public/portal.html` and `public/portal.mjs`, plus the standalone API
+`src/http/portal.ts`. It uses Supabase email OTP with self-registration
+disabled, verified Auth identity and server-side PostgreSQL tenant RLS
+transactions for agency-provisioned client profiles.
+
+**Not wired into the existing Threads backend.** There is still no live customer
+portal, real OTP test, or hosted database migration. Sessions live only in a
+browser tab; signing out clears that memory, not the remote Supabase session.
+The original `public/index.html` remains a separate local-only preview.
+
+Read [PORTAL.md](PORTAL.md) for staging prerequisites and rollout gates.
+
 ## Checks
 
 From repository root after installing root dependencies:
@@ -48,10 +63,11 @@ node --test apps/social-web/dist/tests/*.test.js
 node --test apps/social-web/tests/*.test.mjs
 ```
 
-No application HTTP backend, authentication, persistence or Postiz API integration exists here yet.
-The in-memory store is **not appropriate for production**. Do not expose this package
-to customers until secure login, persistent tenant-scoped storage, rate limiting and
-database-level isolation tests are implemented.
+The standalone portal HTTP/API and persistence adapter are implemented as isolated
+source modules but are not started or connected to hosted Supabase. The original
+in-memory preview store is **not appropriate for production**. Do not expose this
+package to customers until staging authentication, RLS, rate limiting and tenant
+isolation checks are completed.
 
 The browser preview uses `LOCAL_TEMPLATE` and its simulated approval never
 resolves as an active production persona. Separately, the server domain rejects

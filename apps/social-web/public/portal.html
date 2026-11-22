@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>PostBro Social — Client Portal (staging only)</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./portal.mjs"></script>
+</head>
+<body>
+  <header>
+    <div class="brand-heading">
+      <h1>PostBro Social <span class="heading-subtitle">/ Client portal</span></h1>
+      <p class="header-caption">Secure onboarding · Invite only</p>
+    </div>
+    <span class="tag">STAGING FOUNDATION · NOT DEPLOYED</span>
+    <span class="header-spacer"></span>
+    <button id="signOut" class="ghost" type="button" hidden>Sign out</button>
+  </header>
+
+  <main>
+    <div class="banner" role="note">
+      Invite-only access. No customer can create their own account or join another business.
+      This portal stores your login tokens in this tab's memory only: refreshing the page signs you out.
+      Publishing and Persona Engine approval are not enabled.
+    </div>
+    <p id="portalMessage" role="status" aria-live="polite" class="status-line">Checking portal configuration…</p>
+
+    <section id="loginPanel" class="card" aria-labelledby="loginHeading">
+      <h2 id="loginHeading">Sign in with your invited email</h2>
+      <p class="muted">We will send a one-time verification code. Only accounts previously invited by PostBro can sign in.</p>
+      <form id="loginForm">
+        <label class="field">Email address
+          <input id="loginEmail" type="email" autocomplete="email" maxlength="320" required
+            placeholder="you@yourcompany.com">
+        </label>
+        <div class="actions"><button id="requestOtp" type="submit">Send sign-in code</button></div>
+      </form>
+      <form id="verifyForm" hidden>
+        <label class="field">Verification code from your email
+          <input id="otp" type="text" inputmode="numeric" autocomplete="one-time-code"
+            pattern="[0-9]{6,8}" minlength="6" maxlength="8" required placeholder="123456">
+        </label>
+        <div class="actions"><button type="submit">Verify and continue</button></div>
+      </form>
+    </section>
+
+    <section id="workspace" hidden>
+      <div class="card">
+        <div class="card-title-row">
+          <h2>Your business</h2>
+          <span class="pill">Existing invited customers only</span>
+        </div>
+        <p class="muted">Select your existing business profile. You cannot create an account or change package here.</p>
+        <label class="field">Client profile
+          <select id="clientSelect" aria-label="Your client profile"></select>
+        </label>
+        <p class="muted" id="profileStatus"></p>
+      </div>
+
+      <section class="card" aria-labelledby="brandHeading">
+        <div class="card-title-row">
+          <h2 id="brandHeading">Brand profile</h2>
+          <span class="pill">Private to your organization</span>
+        </div>
+        <form id="brandForm">
+          <div class="row">
+            <label class="field">Business name
+              <input id="businessName" required maxlength="200">
+            </label>
+            <label class="field">Industry / niche
+              <input id="niche" required maxlength="1000">
+            </label>
+          </div>
+          <div class="row">
+            <label class="field">Target audience
+              <input id="audience" required maxlength="1000">
+            </label>
+            <label class="field">Preferred language
+              <input id="language" required maxlength="1000">
+            </label>
+          </div>
+          <div class="row">
+            <label class="field">Brand voice / tone
+              <input id="tone" required maxlength="1000">
+            </label>
+            <label class="field">Restrictions or phrases to avoid
+              <input id="restrictions" maxlength="1000">
+            </label>
+          </div>
+          <label class="field">Sample posts (optional)
+            <textarea id="samplePosts" maxlength="1000" rows="3"></textarea>
+          </label>
+          <p class="muted">Changing brand details invalidates any earlier approved persona. Samples are saved but not analysed yet.</p>
+          <div class="actions"><button type="submit">Save brand profile</button></div>
+        </form>
+      </section>
+
+      <section class="card" aria-labelledby="consentHeading">
+        <div class="card-title-row">
+          <h2 id="consentHeading">Optional historical-post analysis</h2>
+          <span class="pill">OFF by default</span>
+        </div>
+        <form id="historyForm">
+          <label class="consent-row">
+            <input type="checkbox" id="historyConsent">
+            <span>I consent to future analysis of previous posts from my own connected accounts.</span>
+          </label>
+          <p class="muted">This records your decision only. PostBro will not fetch any historical social content at this stage.</p>
+          <div class="actions"><button type="submit">Save analysis preference</button></div>
+        </form>
+      </section>
+
+      <section class="card" aria-label="Persona approval status">
+        <h2>Persona status</h2>
+        <p class="muted" id="personaStatus">No approved persona available.</p>
+        <p class="muted">Persona generation, review and real approval will be enabled in a later phase.</p>
+      </section>
+    </section>
+
+    <footer class="muted">PostBro Social · Server-verified identity · PostgreSQL row-level security</footer>
+  </main>
+</body>
+</html>
