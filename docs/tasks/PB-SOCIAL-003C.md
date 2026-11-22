@@ -1,34 +1,67 @@
-# PB-SOCIAL-003C — Isolated Social staging launch preparation
+# PB-SOCIAL-003C — PostBro Social single-project pre-launch setup
 
-**Owner authorization:** 2026-11-22 "go" after PR #27 review/merge, to prepare staging setup. No authority to send real OTPs, apply hosted SQL, change tunnels/DNS/VPS services, deploy or modify production.
+**Decision updated 22 November 2026:** The owner explicitly chose to **skip
+separate staging while Social is not yet operational**. Reuse the existing
+Contabo VPS and active Supabase `postbro-core` project for Social's first
+testing environment. Independent staging can be added later, once Social has
+working client operations.
 
-## Goal and success criteria
+## Objective
 
-Make the Social client portal introduced in PR #27 runnable in its **own** explicitly selected, isolated staging environment, without linking it to the production Threads API, the existing Postiz instance, or the existing PostBro Supabase database by default.
+Prepare a separate Social service and a careful **shared-project** testing
+plan without changing running PostBro engagement or Postiz. Do not install
+a local multi-container Supabase stack.
 
-- Provide a standalone entry point and strict preflight validation of environment variables.
-- Reject missing configuration, non-Supabase URL, insecure database URLs, mixed Auth/DB project refs, invalid ports or non-loopback bind targets.
-- Never accept a staging config that silently falls back to root `DATABASE_URL`.
-- Keep database credentials and secret keys in server-only private environment configuration. Only the project URL and publishable key may be sent to the browser.
-- Start/stop instructions and separate service/tunnel rollout plan are documented but **not executed**.
-- Check safe local health responses and invalid configuration using automated tests.
-- Root engagement tests and existing Social/PG17 regression checks remain green.
-- No migrations in root `db/migrations`, no new Supabase project creation or hosted DB writes, no staging HTTPS origin/DNS/tunnel changes, no login emails sent.
+## Existing evidence
 
-## Deployment decision gate
+- Read-only Supabase metadata check (22 Nov 2026): `postbro-core` active on
+  PostgreSQL 17.11, `postbro` schema exists, `postbro_social` absent.
+- Prior Contabo audit: 8 CPU cores, ~24GB RAM, no swap, high current load;
+  full local Supabase stack is unsuitable for that host.
+- PR #27 provided an isolated Fastify portal and Auth/RLS store, but nothing
+  was deployed or migrated.
 
-A future action requires explicit selection of a Supabase staging project plus a reviewed SQL schema rollout and test accounts, with costs/security examined. The connected account has active projects named `Hermes Threads Media` and `postbro-core`, as well as inactive historical projects; none was established as the Social staging project in this task.
+## Implementation (THIS PR ONLY)
 
-Run first via localhost and operator-authenticated SSH port forwarding, then only after review expose a separate HTTPS origin. Production must not change.
+1. Retain the separate loopback listener (default 127.0.0.1:3201),
+   distinct from running PostBro port 3000 and Postiz.
+2. Rename temporary *staging* configs/runbook to *prelaunch* so no second
+   project is required. Use explicit `SOCIAL_PRELAUNCH_*` env variables,
+   with no fallback to root PostBro credentials.
+3. Validate that DB and Auth refer to **the same** project and require
+   `SOCIAL_PRELAUNCH_SHARED_PROJECT_CONFIRM=postbro-core`.
+4. Include the existing `postbro-core` project reference in the
+   placeholder-only example. No secrets are copied into Git.
+5. Provide runbook for independently reviewing/verifying the Social SQL,
+   secure backup/restore and shared Auth settings before any hosted changes.
+6. Test configuration and isolated app behavior; run root lint, typecheck,
+   unit tests and disposable PostgreSQL security rehearsal.
+7. Keep `apps/social-web/migrations/001_social_foundation.sql` **out of**
+   the running PostBro migration runner.
 
-## Technical outline
+## Explicit exclusions — not authorized
 
-- `apps/social-web/src/staging/config.ts`: pure env parser, accepted project URL and database endpoint must identify the **same** Supabase project ref, require strict TLS and loopback binding.
-- `apps/social-web/src/staging/server.ts`: opt-in executable to create a Pool, construct isolated Fastify app, bind to loopback and implement graceful termination; no import from production `src/index.ts`.
-- `apps/social-web/tests/staging-config.test.ts`: unit tests for misconfiguration, cross-project/unsafe URL rejection and valid direct/session pooler examples; health handler smoke.
-- `apps/social-web/staging.env.example`: placeholders only, no secrets.
-- `apps/social-web/STAGING.md`: clear prerequisites, local run commands, rollback and decision gates.
+- No hosted SQL statements, schema migrations, live user provisioning or
+  account invitations.
+- No new Supabase project or paid plan, no full local Supabase Docker stack.
+- No Postiz/Threads production service edits/restarts or scheduled-post changes.
+- No Cloudflare/DNS/firewall changes, no Social service deployment, no public
+  login endpoint or real OTP email.
+- No changes to project-wide email templates, Auth policies or SMTP settings
+  without a separate impact review and owner approval.
+- No unreviewed account data migration or destructive SQL.
 
-## Note
+## Gate before first real test deployment
 
-This is a **preparation-only PR**. CI green is not evidence that the Supabase stage, SMTP delivery, Cloudflare route or real clients work.
+Owner approval for exact target database and migration after a tested
+backup/restore strategy, then service start in an isolated checkout.
+A separately reviewed browser test must prove invitation-only sign-in,
+tenant RLS isolation, allowed updates and no effect on Postiz/Threads.
+
+## Success criteria
+
+- PR's code and docs match the **one shared Supabase project** decision.
+- Explicit acknowledgement guards shared-project operation.
+- Invalid credentials/project mismatches/public bind/port 3000 rejected.
+- PostBro codebase, Social test suite and disposable PG17 rehearsal pass.
+- Existing services and hosted Supabase remain untouched this turn.
