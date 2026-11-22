@@ -5,6 +5,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Pool } from 'pg';
 import {
   verifySocialIdentity, SocialUnauthorizedError,
@@ -36,7 +37,7 @@ function validatePublicAuth(config: SupabaseAuthOptions): URL {
 export function buildSocialPortalApp(deps: PortalDependencies): FastifyInstance {
   const auth = validatePublicAuth(deps.auth);
   const app = Fastify({ logger: false, bodyLimit: 12_000 });
-  const publicDir = deps.publicDir ?? path.resolve(__dirname, '../../../public');
+  const publicDir = deps.publicDir ?? fileURLToPath(new URL('../../../public/', import.meta.url));
 
   app.addHook('onSend', async (_request, reply, body) => {
     reply.header('cache-control', 'no-store');
