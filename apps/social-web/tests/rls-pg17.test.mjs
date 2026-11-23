@@ -286,6 +286,14 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       await reviewPool.end();
     }
 
+    // Restore the legacy revision-regression fixture to its original
+    // starting state after the independent review-request checks above.
+    // This is test-only setup on a disposable PostgreSQL instance.
+    await admin.query(
+      "UPDATE postbro_social.clients SET persona_revision=0, persona_draft=NULL, status='ONBOARDING' WHERE id=$1",
+      [clientA]
+    );
+
     // Simulate already approved persona before any client-initiated update.
     await admin.query(`UPDATE postbro_social.clients
       SET persona_revision=1, persona_draft='{"summary":"Old"}',
