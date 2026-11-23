@@ -4,7 +4,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FIELDS = 'id, organization_id AS "organizationId", plan, business_name AS "businessName", ' +
   'niche, audience, language, tone, restrictions, sample_posts AS "samplePosts", ' +
   'history_consent AS "historyConsent", history_decision_recorded AS "historyDecisionRecorded", ' +
-  'persona_revision AS "personaRevision", persona_draft AS "personaDraft", persona_approved_revision AS "personaApprovedRevision", persona_approved_at AS "personaApprovedAt", status, updated_at AS "updatedAt"';
+  'persona_revision AS "personaRevision", CASE WHEN persona_draft->>'source' = 'EXTERNAL_ENGINE' THEN
+    jsonb_build_object(
+      'source', 'EXTERNAL_ENGINE',
+      'proposal', jsonb_build_object(
+        'summary', persona_draft->'proposal'->>'summary',
+        'writingStyle', persona_draft->'proposal'->>'writingStyle',
+        'contentPillars', persona_draft->'proposal'->>'contentPillars'
+      )
+    )
+    ELSE NULL END AS "personaDraft", persona_approved_revision AS "personaApprovedRevision", persona_approved_at AS "personaApprovedAt", status, updated_at AS "updatedAt"';
 
 export function requireUuid(value: unknown): string {
   if (typeof value !== 'string' || !UUID.test(value)) {
