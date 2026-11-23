@@ -241,6 +241,17 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     const blockedSpoof = await asUser(A, reviewInsert, [clientA, 3, B, 'APPROVE', null])
       .then(() => null, error => error);
     assert.equal(blockedSpoof?.code, '42501');
+    const malformedReview = await asUser(A, reviewInsert,
+      [clientA, 3, A, 'REQUEST_CHANGES', JSON.stringify({ summary: 'Only one field' })])
+      .then(() => null, error => error);
+    assert.equal(malformedReview?.code, '23514');
+    const extraReviewField = await asUser(A, reviewInsert,
+      [clientA, 3, A, 'REQUEST_CHANGES', JSON.stringify({
+        summary: 'Summary', writingStyle: 'Clear', contentPillars: 'Tips',
+        untrusted: 'extra'
+      })]).then(() => null, error => error);
+    assert.equal(extraReviewField?.code, '23514');
+
     const deniedReviewRewrite = await asUser(A,
       "UPDATE postbro_social.persona_review_requests SET decision='REQUEST_CHANGES' WHERE client_id=$1",
       [clientA]).then(() => null, error => error);
