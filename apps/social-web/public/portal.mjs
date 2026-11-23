@@ -10,6 +10,7 @@ let session = null;
 let emailForVerification = '';
 let clients = [];
 let chosenClientId = null;
+let personaReviews = [];
 
 function status(message, isError = false) {
   const node = $('portalMessage');
@@ -21,6 +22,7 @@ function resetSession(message) {
   session = null;
   clients = [];
   chosenClientId = null;
+  personaReviews = [];
   $('workspace').hidden = true;
   $('loginPanel').hidden = false;
   $('signOut').hidden = true;
@@ -82,6 +84,22 @@ function setFormValue(id, value) {
   $(id).value = typeof value === 'string' ? value : '';
 }
 
+function safeReviewDraft(client) {
+  const draft = client?.personaDraft;
+  if (!draft || typeof draft !== 'object' ||
+      draft.source !== 'EXTERNAL_ENGINE') return null;
+  const proposal = draft.proposal && typeof draft.proposal === 'object'
+    ? draft.proposal : draft;
+  const fields = ['summary', 'writingStyle', 'contentPillars'];
+  if (!fields.every(field => typeof proposal[field] === 'string' &&
+      proposal[field].trim().length > 0 && proposal[field].length <= 1000)) return null;
+  return {
+    summary: proposal.summary,
+    writingStyle: proposal.writingStyle,
+    contentPillars: proposal.contentPillars
+  };
+}
+
 function renderClient() {
   const client = currentClient();
   if (!client) {
@@ -95,9 +113,28 @@ function renderClient() {
   }
   $('historyConsent').checked = client.historyConsent === true;
   $('profileStatus').textContent = 'Package: ' + client.plan + ' · Status: ' + client.status;
-  $('personaStatus').textContent = client.status === 'READY'
-    ? 'An approved persona exists. Editing brand details will invalidate it.'
-    : 'No currently approved persona. Approval is not enabled in this portal.';
+  const draft = safeReviewDraft(client);
+  const canReview = client.status === 'PERSONA_REVIEW' &&
+    Number.isSafeInteger(client.personaRevision) && client.personaRevision >= 1 &&
+    draft !== null;
+  $('personaReviewPanel').hidden = !canReview;
+  if (canReview) {
+    $('reviewSummary').value = draft.summary;
+    $('reviewStyle').value = draft.writingStyle;
+    $('reviewPillars').value = draft.contentPillars;
+    const existing = personaReviews.find(row => row.personaRevision === client.personaRevision);
+    $('personaReviewForm').hidden = !!existing;
+    $('personaReviewStatus').textContent = existing
+      ? (existing.decision === 'APPROVE'
+        ? 'Approval request recorded. Awaiting trusted processing. Nothing is activated.'
+        : 'Change request recorded. Awaiting a revised persona.')
+      : 'Draft revision ' + client.personaRevision + ' · No decision submitted yet.';
+  }
+  $('personaStatus').textContent = canReview
+    ? 'An externally generated Persona V1 draft is ready for your review.'
+    : client.status === 'READY'
+      ? 'An approved persona exists. Changing brand details will invalidate it.'
+      : 'No reviewable external Persona Engine draft is available yet.';
 }
 
 function renderClients() {
@@ -116,6 +153,17 @@ function renderClients() {
   renderClient();
 }
 
+async function loadPersonaReviews() {
+  const id = chosenClientId;
+  if (!id) { personaReviews = []; return; }
+  const response = await clientApi('GET', '/clients/' + encodeURIComponent(id) + '/persona/reviews');
+  if (!Array.isArray(response.reviews)) throw new Error('Invalid persona review response.');
+  if (id === chosenClientId) {
+    personaReviews = response.reviews;
+    renderClient();
+  }
+}
+
 async function loadClients() {
   const result = await clientApi('GET', '/clients');
   if (!Array.isArray(result.clients)) throw new Error('Invalid server response.');
@@ -123,6 +171,7 @@ async function loadClients() {
   $('loginPanel').hidden = true;
   $('signOut').hidden = false;
   renderClients();
+  if (chosenClientId) await loadPersonaReviews();
   status(clients.length
     ? 'Signed in. Your private business profile is ready.'
     : 'Signed in, but no client is assigned to your account. Contact PostBro.');
@@ -135,6 +184,7 @@ async function saveClient(method, path, payload) {
   }
   clients = clients.map(client => client.id === chosenClientId ? result.client : client);
   renderClients();
+  await loadPersonaReviews();
 }
 
 $('loginForm').addEventListener('submit', async event => {
@@ -189,7 +239,10 @@ $('verifyForm').addEventListener('submit', async event => {
 
 $('clientSelect').addEventListener('change', () => {
   chosenClientId = $('clientSelect').value;
+  personaReviews = [];
   renderClient();
+  void loadPersonaReviews().catch(() =>
+    status('Unable to load persona review history. Try again.', true));
 });
 
 $('brandForm').addEventListener('submit', async event => {
@@ -219,6 +272,64 @@ $('historyForm').addEventListener('submit', async event => {
   } catch (error) {
     status(error instanceof Error ? error.message : 'Unable to save preference.', true);
   }
+});
+
+async function submitPersonaReview(decision) {
+  const client = currentClient();
+  const draft = safeReviewDraft(client);
+  if (!client || !draft || client.status !== 'PERSONA_REVIEW') {
+    status('No externally generated persona draft is ready.', true);
+    return;
+  }
+  const changes = {
+    summary: $('reviewSummary').value.trim(),
+    writingStyle: $('reviewStyle').value.trim(),
+    contentPillars: $('reviewPillars').value.trim()
+  };
+  if (Object.values(changes).some(value => value.length === 0 || value.length > 1000)) {
+    status('Complete all persona fields before submitting.', true);
+    return;
+  }
+  const changed = Object.keys(changes).some(field => changes[field] !== draft[field]);
+  if (decision === 'APPROVE' && changed) {
+    status('You changed the draft. Use Request changes instead of approval.', true);
+    return;
+  }
+  if (decision === 'REQUEST_CHANGES' && !changed) {
+    status('Edit at least one persona field to request changes.', true);
+    return;
+  }
+  $('requestPersonaChanges').disabled = true;
+  $('approvePersona').disabled = true;
+  try {
+    const response = await clientApi(
+      'POST', '/clients/' + encodeURIComponent(client.id) + '/persona/reviews',
+      {
+        expectedRevision: client.personaRevision,
+        decision,
+        ...(decision === 'REQUEST_CHANGES' ? { suggestedChanges: changes } : {})
+      }
+    );
+    if (!response.review || response.activated !== false) {
+      throw new Error('Unexpected review response.');
+    }
+    await loadPersonaReviews();
+    status(decision === 'APPROVE'
+      ? 'Approval request recorded. Persona is NOT active until trusted processing.'
+      : 'Changes requested. The Persona Engine must prepare a new revision.');
+  } catch (error) {
+    status(error instanceof Error ? error.message : 'Review request failed.', true);
+  } finally {
+    $('requestPersonaChanges').disabled = false;
+    $('approvePersona').disabled = false;
+  }
+}
+
+$('approvePersona').addEventListener('click', () => {
+  void submitPersonaReview('APPROVE');
+});
+$('requestPersonaChanges').addEventListener('click', () => {
+  void submitPersonaReview('REQUEST_CHANGES');
 });
 
 $('signOut').addEventListener('click', () => {

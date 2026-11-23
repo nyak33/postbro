@@ -112,10 +112,32 @@
         </form>
       </section>
 
-      <section class="card" aria-label="Persona approval status">
-        <h2>Persona status</h2>
-        <p class="muted" id="personaStatus">No approved persona available.</p>
-        <p class="muted">Persona generation, review and real approval will be enabled in a later phase.</p>
+      <section class="card" aria-label="Persona review">
+        <div class="card-title-row">
+          <h2>Persona review</h2>
+          <span class="pill">CLIENT DECISION · NOT ACTIVATION</span>
+        </div>
+        <p class="muted" id="personaStatus">No externally generated persona draft available.</p>
+        <div id="personaReviewPanel" hidden>
+          <p class="muted">Review your proposed persona. An approval submission is recorded for PostBro to process; it does not activate AI or publish anything.</p>
+          <p id="personaReviewStatus" class="muted" role="status" aria-live="polite"></p>
+          <form id="personaReviewForm">
+            <label class="field">Persona summary
+              <textarea id="reviewSummary" maxlength="1000" rows="3" required></textarea>
+            </label>
+            <label class="field">Writing style
+              <textarea id="reviewStyle" maxlength="1000" rows="2" required></textarea>
+            </label>
+            <label class="field">Content pillars
+              <textarea id="reviewPillars" maxlength="1000" rows="2" required></textarea>
+            </label>
+            <div class="actions">
+              <button type="button" class="ghost" id="requestPersonaChanges">Request changes</button>
+              <button type="button" id="approvePersona">Submit persona approval</button>
+            </div>
+          </form>
+        </div>
+        <p class="muted">Only drafts from the trusted Persona Engine can be submitted for review. Local mock previews are never eligible.</p>
       </section>
     </section>
 

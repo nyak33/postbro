@@ -1,10 +1,29 @@
 import type { Pool, PoolClient } from 'pg';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FIELDS = 'id, organization_id AS "organizationId", plan, business_name AS "businessName", ' +
-  'niche, audience, language, tone, restrictions, sample_posts AS "samplePosts", ' +
-  'history_consent AS "historyConsent", history_decision_recorded AS "historyDecisionRecorded", ' +
-  'persona_revision AS "personaRevision", status, updated_at AS "updatedAt"';
+const FIELDS = `
+  id, organization_id AS "organizationId", plan,
+  business_name AS "businessName", niche, audience, language, tone,
+  restrictions, sample_posts AS "samplePosts",
+  history_consent AS "historyConsent",
+  history_decision_recorded AS "historyDecisionRecorded",
+  persona_revision AS "personaRevision",
+  CASE
+    WHEN persona_draft->>'source' = 'EXTERNAL_ENGINE' THEN
+      jsonb_build_object(
+        'source', 'EXTERNAL_ENGINE',
+        'proposal', jsonb_build_object(
+          'summary', persona_draft->'proposal'->>'summary',
+          'writingStyle', persona_draft->'proposal'->>'writingStyle',
+          'contentPillars', persona_draft->'proposal'->>'contentPillars'
+        )
+      )
+    ELSE NULL
+  END AS "personaDraft",
+  persona_approved_revision AS "personaApprovedRevision",
+  persona_approved_at AS "personaApprovedAt",
+  status, updated_at AS "updatedAt"
+`;
 
 export function requireUuid(value: unknown): string {
   if (typeof value !== 'string' || !UUID.test(value)) {
@@ -126,4 +145,103 @@ export async function saveTenantHistory(
       'history_decision_recorded=true WHERE id=$1 RETURNING ' + FIELDS,
       [clientId, optedIn])).rows[0] ?? null
   );
+}
+
+/** Client intent only: the separate trusted engine worker must process it.
+ * Submitting a review NEVER creates an active persona or schedules content.
+ */
+export interface PersonaReviewDecision {
+  expectedRevision: number;
+  decision: 'APPROVE' | 'REQUEST_CHANGES';
+  suggestedChanges: {
+    summary: string;
+    writingStyle: string;
+    contentPillars: string;
+  } | null;
+}
+
+export function parsePersonaReview(input: unknown): PersonaReviewDecision {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('invalid_persona_review');
+  }
+  const raw = input as Record<string, unknown>;
+  if (Object.keys(raw).some(key =>
+    !['expectedRevision', 'decision', 'suggestedChanges'].includes(key))) {
+    throw new Error('invalid_persona_review');
+  }
+  if (!Number.isSafeInteger(raw.expectedRevision) ||
+      (raw.expectedRevision as number) < 1) {
+    throw new Error('invalid_persona_revision');
+  }
+  if (raw.decision === 'APPROVE') {
+    if (raw.suggestedChanges !== undefined && raw.suggestedChanges !== null) {
+      throw new Error('invalid_persona_review');
+    }
+    return {
+      expectedRevision: raw.expectedRevision as number,
+      decision: 'APPROVE',
+      suggestedChanges: null
+    };
+  }
+  if (raw.decision !== 'REQUEST_CHANGES' || !raw.suggestedChanges ||
+      typeof raw.suggestedChanges !== 'object' ||
+      Array.isArray(raw.suggestedChanges)) {
+    throw new Error('invalid_persona_review');
+  }
+  const changes = raw.suggestedChanges as Record<string, unknown>;
+  const fields = ['summary', 'writingStyle', 'contentPillars'];
+  if (Object.keys(changes).some(key => !fields.includes(key))) {
+    throw new Error('invalid_persona_review');
+  }
+  return {
+    expectedRevision: raw.expectedRevision as number,
+    decision: 'REQUEST_CHANGES',
+    suggestedChanges: {
+      summary: stringField(changes.summary, 'summary', 1000, true),
+      writingStyle: stringField(changes.writingStyle, 'writingStyle', 1000, true),
+      contentPillars: stringField(changes.contentPillars, 'contentPillars', 1000, true),
+    }
+  };
+}
+
+export async function getPersonaReviewRequests(
+  pool: Pick<Pool, 'connect'>, userId: string, clientId: string,
+) {
+  requireUuid(clientId);
+  return withTenantRls(pool, userId, async db =>
+    (await db.query(
+      `SELECT id, client_id AS "clientId", persona_revision AS "personaRevision",
+        requested_by AS "requestedBy", decision,
+        suggested_changes AS "suggestedChanges", created_at AS "createdAt"
+        FROM postbro_social.persona_review_requests
+        WHERE client_id=$1 ORDER BY created_at DESC LIMIT 20`,
+      [clientId]
+    )).rows
+  );
+}
+
+export async function submitPersonaReviewRequest(
+  pool: Pick<Pool, 'connect'>, userId: string, clientId: string, input: unknown,
+) {
+  requireUuid(clientId);
+  const review = parsePersonaReview(input);
+  return withTenantRls(pool, userId, async db => {
+    const result = await db.query(
+      `INSERT INTO postbro_social.persona_review_requests
+        (client_id, persona_revision, requested_by, decision, suggested_changes)
+        SELECT c.id, c.persona_revision, $3, $4, $5::jsonb
+        FROM postbro_social.clients AS c
+        WHERE c.id=$1 AND c.persona_revision=$2 AND c.status='PERSONA_REVIEW'
+          AND c.persona_draft->>'source'='EXTERNAL_ENGINE'
+        ON CONFLICT (client_id, persona_revision) DO NOTHING
+        RETURNING id, client_id AS "clientId",
+          persona_revision AS "personaRevision", requested_by AS "requestedBy",
+          decision, suggested_changes AS "suggestedChanges", created_at AS "createdAt"`,
+      [
+        clientId, review.expectedRevision, userId, review.decision,
+        review.suggestedChanges ? JSON.stringify(review.suggestedChanges) : null
+      ]
+    );
+    return result.rows[0] ?? null;
+  });
 }
