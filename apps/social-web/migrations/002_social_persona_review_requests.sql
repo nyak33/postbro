@@ -16,6 +16,8 @@ CREATE TABLE postbro_social.persona_review_requests (
     (decision = 'REQUEST_CHANGES'
       AND suggested_changes IS NOT NULL
       AND jsonb_typeof(suggested_changes) = 'object'
+      AND suggested_changes ?& ARRAY['summary', 'writingStyle', 'contentPillars']
+      AND (suggested_changes - 'summary' - 'writingStyle' - 'contentPillars') = '{}'::jsonb
       AND jsonb_typeof(suggested_changes->'summary') = 'string'
       AND jsonb_typeof(suggested_changes->'writingStyle') = 'string'
       AND jsonb_typeof(suggested_changes->'contentPillars') = 'string'
