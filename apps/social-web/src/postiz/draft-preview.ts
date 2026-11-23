@@ -79,12 +79,14 @@ function activeIntegration(
 ): VerifiedPostizIntegration {
   const configuredId = safeId(mapping.integrationIds[provider]);
   const matches = freshList.filter(item => item.id === configuredId);
-  if (matches.length !== 1 || matches[0].identifier !== provider ||
-      matches[0].disabled !== false ||
-      matches[0].customer?.id !== mapping.customerGroupId) {
+  const selected = matches[0];
+  if (matches.length !== 1 || !selected ||
+      selected.identifier !== provider ||
+      selected.disabled !== false ||
+      selected.customer?.id !== mapping.customerGroupId) {
     throw new PostizPreviewError('unverified_postiz_integration');
   }
-  return matches[0];
+  return selected;
 }
 
 export function buildPostizDraftPreview(
