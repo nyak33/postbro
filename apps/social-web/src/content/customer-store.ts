@@ -44,7 +44,12 @@ export async function listCustomerContent(
   requireUuid(clientId);
   return withTenantRls(pool, userId, async db => {
     const rows = await db.query(
-      `SELECT ${SAFE_COLUMNS} FROM postbro_social.content_drafts
+      `SELECT ${SAFE_COLUMNS},
+         (SELECT r.decision FROM postbro_social.content_review_requests AS r
+          WHERE r.draft_id=content_drafts.id
+            AND r.content_revision=content_drafts.content_revision
+          LIMIT 1) AS "reviewDecision"
+       FROM postbro_social.content_drafts
        WHERE client_id=$1 ORDER BY scheduled_for, id LIMIT 100`, [clientId]
     );
     return rows.rows;
