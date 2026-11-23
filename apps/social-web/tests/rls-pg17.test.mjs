@@ -184,6 +184,7 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     // activate personas. Test against real PostgreSQL RLS, not only mock SQL.
     const externalDraft = JSON.stringify({
       source: 'EXTERNAL_ENGINE',
+      engineInternal: 'MUST_NOT_BE_EXPOSED_IN_CLIENT_API',
       proposal: {
         summary: 'Coffee education for adult home brewers',
         writingStyle: 'Warm, practical and clear',
@@ -206,6 +207,21 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       "UPDATE postbro_social.clients SET persona_revision=3, persona_draft=$2::jsonb, status='PERSONA_REVIEW' WHERE id=$1",
       [clientB, mockDraft]
     );
+
+    const reviewProjectionPool = new pg.Pool({ connectionString: DATABASE_URL });
+    try {
+      const store = await import('../dist/src/http/tenant-store.js');
+      const clientDetails = await store.getTenantClient(reviewProjectionPool, A, clientA);
+      assert.equal(clientDetails.personaDraft.source, 'EXTERNAL_ENGINE');
+      assert.equal(clientDetails.personaDraft.proposal.summary,
+        'Coffee education for adult home brewers');
+      assert.equal(clientDetails.personaDraft.engineInternal, undefined);
+      assert.doesNotMatch(JSON.stringify(clientDetails), /MUST_NOT_BE_EXPOSED_IN_CLIENT_API/);
+      const mockClient = await store.getTenantClient(reviewProjectionPool, B, clientB);
+      assert.equal(mockClient.personaDraft, null);
+    } finally {
+      await reviewProjectionPool.end();
+    }
 
     const reviewInsert = `INSERT INTO postbro_social.persona_review_requests
       (client_id, persona_revision, requested_by, decision, suggested_changes)
