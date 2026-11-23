@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Pool } from 'pg';
 import { buildSocialPortalApp } from '../src/http/portal.js';
 import {
-  parseBrand, parseHistory, withTenantRls, saveTenantBrand,
+  parseBrand, parseHistory, parsePersonaReview, withTenantRls, saveTenantBrand,
 } from '../src/http/tenant-store.js';
 
 const USER = '10000000-0000-4000-8000-000000000001';
@@ -38,6 +38,15 @@ function mockDb(options: { viewer?: boolean; throwOnWrite?: boolean } = {}): Moc
         async query(sql: string, params: unknown[] = []) {
           calls.push(sql);
           values.push(params);
+          if (sql.startsWith('INSERT INTO postbro_social.persona_review_requests')) {
+            if (options.viewer || params[0] === OTHER_CLIENT) return { rows: [], rowCount: 0 };
+            return { rows: [{ id: CLIENT, clientId: params[0],
+              personaRevision: params[1], requestedBy: params[2],
+              decision: params[3], suggestedChanges: params[4] }], rowCount: 1 };
+          }
+          if (sql.includes('FROM postbro_social.persona_review_requests')) {
+            return { rows: [], rowCount: 0 };
+          }
           if (sql.startsWith('UPDATE')) {
             if (options.throwOnWrite) throw new Error('database failed');
             if (options.viewer || params[0] === OTHER_CLIENT) return { rows: [], rowCount: 0 };
@@ -205,6 +214,78 @@ test('public client config contains no DB credentials or service-role keys', asy
     assert.match(page.headers['content-security-policy'] as string,
       /connect-src 'self' https:\/\/test-project\.supabase\.co/);
     assert.match(page.body, /Invite-only access/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('persona review input accepts explicit version-bound approval and edits only', () => {
+  assert.deepEqual(parsePersonaReview({
+    expectedRevision: 3, decision: 'APPROVE'
+  }), {
+    expectedRevision: 3, decision: 'APPROVE', suggestedChanges: null
+  });
+  const edits = { summary: 'Niche summary', writingStyle: 'Clear',
+    contentPillars: 'Three topics' };
+  assert.deepEqual(parsePersonaReview({
+    expectedRevision: 4, decision: 'REQUEST_CHANGES', suggestedChanges: edits
+  }).suggestedChanges, edits);
+  for (const invalid of [
+    { expectedRevision: -1, decision: 'APPROVE' },
+    { expectedRevision: 0, decision: 'APPROVE' },
+    { expectedRevision: 1.5, decision: 'APPROVE' },
+    { expectedRevision: 1, decision: 'APPROVE', suggestedChanges: edits },
+    { expectedRevision: 1, decision: 'REQUEST_CHANGES' },
+    { expectedRevision: 1, decision: 'REQUEST_CHANGES',
+      suggestedChanges: { ...edits, mode: 'AUTO' } },
+    { expectedRevision: 1, decision: 'REQUEST_CHANGES',
+      suggestedChanges: { ...edits, summary: '' } },
+    { expectedRevision: 1, decision: 'APPROVE', organizationId: OTHER_CLIENT },
+  ]) {
+    assert.throws(() => parsePersonaReview(invalid), /invalid_/);
+  }
+});
+
+test('authenticated persona review request records intent and never activates persona', async () => {
+  const db = mockDb();
+  const { app } = portal(db);
+  try {
+    const headers = { authorization: 'Bearer ' + TOKEN };
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/social/clients/' + CLIENT + '/persona/reviews',
+      headers,
+      payload: { expectedRevision: 3, decision: 'APPROVE' },
+    });
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.json().review.clientId, CLIENT);
+    assert.equal(res.json().activated, false);
+    assert.ok(db.calls.some(sql =>
+      sql.startsWith('INSERT INTO postbro_social.persona_review_requests')));
+    assert.ok(!db.calls.some(sql => /persona_approved_revision|status='READY'/.test(sql)));
+  } finally {
+    await app.close();
+  }
+});
+
+test('persona review routes require verified sign-in and RLS rejects unauthorized writes', async () => {
+  const db = mockDb({ viewer: true });
+  const { app } = portal(db);
+  try {
+    const anon = await app.inject({ method: 'POST',
+      url: '/api/social/clients/' + CLIENT + '/persona/reviews',
+      payload: { expectedRevision: 3, decision: 'APPROVE' } });
+    assert.equal(anon.statusCode, 401);
+    const headers = { authorization: 'Bearer ' + TOKEN };
+    const viewer = await app.inject({ method: 'POST',
+      url: '/api/social/clients/' + CLIENT + '/persona/reviews', headers,
+      payload: { expectedRevision: 3, decision: 'APPROVE' } });
+    assert.equal(viewer.statusCode, 404);
+    const invalid = await app.inject({ method: 'POST',
+      url: '/api/social/clients/' + CLIENT + '/persona/reviews', headers,
+      payload: { expectedRevision: 0, decision: 'APPROVE' } });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(db.connectionCount(), db.releasedCount());
   } finally {
     await app.close();
   }
