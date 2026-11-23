@@ -499,11 +499,6 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal(first.status, 'IN_REVIEW');
       assert.equal(first.contentRevision, 1);
       assert.equal(await content.getTrustedApprovedContent(contentPool, first.id), null);
-      const nowStale = await postiz.previewApprovedPostizDraft(
-        contentPool, first.id, dryRunMapping, dryRunConnections
-      ).then(() => null, error => error);
-      assert.equal(nowStale?.message, 'content_not_approved');
-
       const viewerDrafts = await contentStore.listCustomerContent(contentPool, V, clientA);
       assert.equal(viewerDrafts.length, 1); // viewer reads but cannot approve
       assert.equal((await contentStore.listCustomerContent(contentPool, B, clientA)).length, 0);
@@ -610,6 +605,10 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       await admin.query('UPDATE postbro_social.clients SET tone=$2 WHERE id=$1',
         [clientA, 'New brand voice']);
       assert.equal(await content.getTrustedApprovedContent(contentPool, first.id), null);
+      const nowStale = await postiz.previewApprovedPostizDraft(
+        contentPool, first.id, dryRunMapping, dryRunConnections
+      ).then(() => null, error => error);
+      assert.equal(nowStale?.message, 'content_not_approved');
       const pending = await content.createTrustedContentDraft(
         contentPool, clientA, 'THREADS', 'Should not create with stale persona', day
       ).then(() => null, error => error);
