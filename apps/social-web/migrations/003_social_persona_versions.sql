@@ -27,10 +27,7 @@ CREATE TABLE postbro_social.persona_review_actions (
   client_id uuid NOT NULL REFERENCES postbro_social.clients(id) ON DELETE RESTRICT,
   persona_revision integer NOT NULL CHECK (persona_revision >= 1),
   result text NOT NULL CHECK (result IN ('ACTIVATED', 'REVISION_REQUIRED', 'STALE')),
-  processed_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (client_id, persona_revision)
-    REFERENCES postbro_social.persona_versions(client_id, revision)
-    ON DELETE RESTRICT
+  processed_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX persona_review_actions_client_idx
