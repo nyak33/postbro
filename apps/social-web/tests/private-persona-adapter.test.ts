@@ -54,8 +54,13 @@ function mockRunner(
           id: PERSONA,
           version: 1,
           base: {
-            identity: { niche: brand.niche, audience: brand.audience },
-            voice: { tone: brand.tone, language: brand.language }
+            identity: { summary: brand.businessName + ' — ' + brand.niche,
+              niche: brand.niche, audience: brand.audience },
+            capabilities: ['content', 'engagement'],
+            voice: { tone: brand.tone, language: brand.language },
+            contentBehavior: { style: 'Educational, useful and audience-first content.' },
+            engagementBehavior: {},
+            examples: [brand.samplePosts]
           },
           contexts: [],
           learnedPreferences: []
