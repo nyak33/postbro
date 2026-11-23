@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   buildPostizDraftPreview, PostizPreviewError,
   type PostizClientMapping, type VerifiedPostizIntegration,
+  type ReadyPostizMedia,
 } from '../src/postiz/draft-preview.js';
 
 const CLIENT = '30000000-0000-4000-8000-000000000001';
@@ -102,7 +103,8 @@ test('reject unsafe unready media, cross-tenant input and excessive Threads text
     { id: 'postiz_image_123', path: 'https://user:pass@media.example.com/file.jpg', status: 'ready' as const },
     { id: 'postiz_image_123', path: 'https://media.example.com/file.jpg', status: 'processing' as const },
   ]) {
-    assert.throws(() => buildPostizDraftPreview(fb, mapping, integrations, [item]));
+    assert.throws(() => buildPostizDraftPreview(fb, mapping, integrations,
+      [item as unknown as ReadyPostizMedia]));
   }
   assert.throws(() => buildPostizDraftPreview(
     { ...threadsContent, body: 'x'.repeat(501) }, mapping, integrations
