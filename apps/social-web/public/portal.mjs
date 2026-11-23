@@ -11,6 +11,7 @@ let emailForVerification = '';
 let clients = [];
 let chosenClientId = null;
 let personaReviews = [];
+let customerContent = [];
 
 function status(message, isError = false) {
   const node = $('portalMessage');
@@ -23,6 +24,7 @@ function resetSession(message) {
   clients = [];
   chosenClientId = null;
   personaReviews = [];
+  customerContent = [];
   $('workspace').hidden = true;
   $('loginPanel').hidden = false;
   $('signOut').hidden = true;
@@ -164,6 +166,91 @@ async function loadPersonaReviews() {
   }
 }
 
+function renderContentQueue() {
+  const queue = $('contentQueue');
+  const items = customerContent.map(item => {
+    const card = document.createElement('article');
+    card.className = 'card';
+    const label = document.createElement('p');
+    const date = new Date(item.scheduledFor);
+    label.className = 'muted';
+    label.textContent = item.surface + ' · ' +
+      (Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString('en-MY', {
+        timeZone: 'Asia/Kuala_Lumpur'
+      })) + ' MYT · ' + item.status;
+    const body = document.createElement('p');
+    body.textContent = item.body;
+    card.append(label, body);
+    if (item.reviewDecision) {
+      const pending = document.createElement('p');
+      pending.className = 'muted';
+      pending.textContent = item.reviewDecision === 'APPROVE'
+        ? 'Approval requested. Not sent to Postiz.'
+        : 'Changes requested; revision required.';
+      card.append(pending);
+    } else if (item.status === 'IN_REVIEW') {
+      const comment = document.createElement('textarea');
+      comment.placeholder = 'What should be changed? (required when requesting changes)';
+      comment.maxLength = 1000;
+      comment.rows = 2;
+      const approve = document.createElement('button');
+      approve.type = 'button';
+      approve.textContent = 'Approve content';
+      const requestChanges = document.createElement('button');
+      requestChanges.type = 'button';
+      requestChanges.textContent = 'Request changes';
+      requestChanges.className = 'ghost';
+      const send = async decision => {
+        const note = comment.value.trim();
+        if (decision === 'REQUEST_CHANGES' && !note) {
+          status('Enter your requested changes before submitting.', true);
+          return;
+        }
+        approve.disabled = true;
+        requestChanges.disabled = true;
+        try {
+          const result = await clientApi('POST', '/content/' +
+            encodeURIComponent(item.id) + '/reviews', {
+              expectedRevision: item.contentRevision,
+              decision,
+              ...(decision === 'REQUEST_CHANGES' ? { comment: note } : {})
+            });
+          if (!result.review || result.scheduled !== false) {
+            throw new Error('Unexpected approval response.');
+          }
+          await loadContentQueue();
+          status('Decision recorded. Nothing has been scheduled or published.');
+        } catch (error) {
+          status(error instanceof Error ? error.message : 'Approval request failed.', true);
+        } finally {
+          approve.disabled = false;
+          requestChanges.disabled = false;
+        }
+      };
+      approve.addEventListener('click', () => { void send('APPROVE'); });
+      requestChanges.addEventListener('click', () => { void send('REQUEST_CHANGES'); });
+      card.append(comment, approve, requestChanges);
+    }
+    return card;
+  });
+  queue.replaceChildren(...items);
+  $('contentQueueStatus').textContent = customerContent.length
+    ? customerContent.length + ' content piece(s) available for your organization.'
+    : 'No content drafts assigned yet.';
+}
+
+async function loadContentQueue() {
+  const id = chosenClientId;
+  if (!id) { customerContent = []; renderContentQueue(); return; }
+  const response = await clientApi('GET',
+    '/clients/' + encodeURIComponent(id) + '/content');
+  if (!Array.isArray(response.content)) throw new Error('Invalid content response.');
+  if (id === chosenClientId) {
+    customerContent = response.content;
+    renderContentQueue();
+  }
+}
+
 async function loadClients() {
   const result = await clientApi('GET', '/clients');
   if (!Array.isArray(result.clients)) throw new Error('Invalid server response.');
@@ -171,7 +258,10 @@ async function loadClients() {
   $('loginPanel').hidden = true;
   $('signOut').hidden = false;
   renderClients();
-  if (chosenClientId) await loadPersonaReviews();
+  if (chosenClientId) {
+    await loadPersonaReviews();
+    await loadContentQueue();
+  }
   status(clients.length
     ? 'Signed in. Your private business profile is ready.'
     : 'Signed in, but no client is assigned to your account. Contact PostBro.');
@@ -185,6 +275,7 @@ async function saveClient(method, path, payload) {
   clients = clients.map(client => client.id === chosenClientId ? result.client : client);
   renderClients();
   await loadPersonaReviews();
+  await loadContentQueue();
 }
 
 $('loginForm').addEventListener('submit', async event => {
@@ -240,9 +331,13 @@ $('verifyForm').addEventListener('submit', async event => {
 $('clientSelect').addEventListener('change', () => {
   chosenClientId = $('clientSelect').value;
   personaReviews = [];
+  customerContent = [];
   renderClient();
+  renderContentQueue();
   void loadPersonaReviews().catch(() =>
     status('Unable to load persona review history. Try again.', true));
+  void loadContentQueue().catch(() =>
+    status('Unable to load content queue. Try again.', true));
 });
 
 $('brandForm').addEventListener('submit', async event => {
