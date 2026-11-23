@@ -15,6 +15,10 @@ import {
   listTenantClients, getTenantClient, saveTenantBrand, saveTenantHistory,
   getPersonaReviewRequests, submitPersonaReviewRequest,
 } from './tenant-store.js';
+import {
+  listCustomerContent, listCustomerContentDecisions,
+  submitCustomerContentDecision,
+} from '../content/customer-store.js';
 
 export interface PortalDependencies {
   pool: Pick<Pool, 'connect'>;
@@ -131,6 +135,28 @@ export function buildSocialPortalApp(deps: PortalDependencies): FastifyInstance 
     );
     if (!review) return reply.code(404).send({ error: 'review_unavailable' });
     return reply.code(201).send({ review, activated: false });
+  });
+
+  // Customer content approval is a recorded request, not a Postiz action.
+  app.get<{ Params: { id: string } }>('/api/social/clients/:id/content', async request => {
+    const user = await identity(request.headers.authorization);
+    const content = await listCustomerContent(deps.pool, user, request.params.id);
+    return { content };
+  });
+
+  app.get<{ Params: { id: string } }>('/api/social/content/:id/reviews', async request => {
+    const user = await identity(request.headers.authorization);
+    const reviews = await listCustomerContentDecisions(deps.pool, user, request.params.id);
+    return { reviews };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/social/content/:id/reviews', async (request, reply) => {
+    const user = await identity(request.headers.authorization);
+    const review = await submitCustomerContentDecision(
+      deps.pool, user, request.params.id, request.body
+    );
+    if (!review) return reply.code(404).send({ error: 'content_review_unavailable' });
+    return reply.code(201).send({ review, scheduled: false });
   });
 
   return app;

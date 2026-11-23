@@ -18,6 +18,10 @@ const personaVersionsMigrationSql = readFileSync(
   new URL('../migrations/003_social_persona_versions.sql', import.meta.url),
   'utf8'
 );
+const contentApprovalMigrationSql = readFileSync(
+  new URL('../migrations/004_social_content_approval.sql', import.meta.url),
+  'utf8'
+);
 
 function ensureDisposableUrl(url) {
   const db = new URL(url);
@@ -61,6 +65,7 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     await admin.query(migrationSql);
     await admin.query(personaReviewMigrationSql);
     await admin.query(personaVersionsMigrationSql);
+    await admin.query(contentApprovalMigrationSql);
 
     const A = '10000000-0000-4000-8000-000000000001';
     const B = '10000000-0000-4000-8000-000000000002';
@@ -473,6 +478,122 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     assert.equal(updated.rows[0].history_consent, false);
     assert.equal(updated.rows[0].history_decision_recorded, false);
     assert.equal(updated.rows[0].status, 'ONBOARDING');
+
+    // PB-SOCIAL-005A: use disposable active persona fixtures to prove that
+    // content cannot bypass client approval, RLS or package limits.
+    const content = await import('../dist/src/content/trusted-workflow.js');
+    const contentStore = await import('../dist/src/content/customer-store.js');
+    const contentPool = new pg.Pool({ connectionString: DATABASE_URL });
+    try {
+      await admin.query(`
+        UPDATE postbro_social.clients
+        SET persona_revision=10, persona_draft=$2::jsonb,
+          persona_approved_revision=10, persona_approved_at=now(), status='READY'
+        WHERE id=$1
+      `, [clientA, externalDraft]);
+
+      const day = '2027-01-11T01:00:00.000Z';
+      const first = await content.createTrustedContentDraft(
+        contentPool, clientA, 'THREADS', 'How to prepare specialty coffee at home', day
+      );
+      assert.equal(first.status, 'IN_REVIEW');
+      assert.equal(first.contentRevision, 1);
+      assert.equal(await content.getTrustedApprovedContent(contentPool, first.id), null);
+
+      const viewerDrafts = await contentStore.listCustomerContent(contentPool, V, clientA);
+      assert.equal(viewerDrafts.length, 1); // viewer reads but cannot approve
+      assert.equal((await contentStore.listCustomerContent(contentPool, B, clientA)).length, 0);
+      const viewerContentReview = await contentStore.submitCustomerContentDecision(
+        contentPool, V, first.id, { expectedRevision: 1, decision: 'APPROVE' }
+      ).then(() => null, error => error);
+      assert.equal(viewerContentReview?.code, '42501');
+      const wrongTenantReview = await contentStore.submitCustomerContentDecision(
+        contentPool, B, first.id, { expectedRevision: 1, decision: 'APPROVE' }
+      );
+      assert.equal(wrongTenantReview, null);
+
+      const requests = await Promise.all([
+        contentStore.submitCustomerContentDecision(contentPool, A, first.id,
+          { expectedRevision: 1, decision: 'APPROVE' }),
+        contentStore.submitCustomerContentDecision(contentPool, A, first.id,
+          { expectedRevision: 1, decision: 'APPROVE' })
+      ]);
+      assert.equal(requests.filter(Boolean).length, 1);
+      const request = requests.find(Boolean);
+      assert.equal(await content.getTrustedApprovedContent(contentPool, first.id), null);
+      const accepted = await content.processTrustedContentDecision(contentPool, request.id);
+      assert.equal(accepted.result, 'APPROVED');
+      const repeated = await content.processTrustedContentDecision(contentPool, request.id);
+      assert.equal(repeated.result, 'APPROVED');
+      const approvedContent = await content.getTrustedApprovedContent(contentPool, first.id);
+      assert.equal(approvedContent.body, 'How to prepare specialty coffee at home');
+
+      const second = await content.createTrustedContentDraft(
+        contentPool, clientA, 'FB_IG', 'Second coffee post', day
+      );
+      const changeRequest = await contentStore.submitCustomerContentDecision(
+        contentPool, A, second.id, {
+          expectedRevision: 1, decision: 'REQUEST_CHANGES',
+          comment: 'Please make the message shorter.'
+        }
+      );
+      const changeAction = await content.processTrustedContentDecision(
+        contentPool, changeRequest.id
+      );
+      assert.equal(changeAction.result, 'CHANGES_REQUESTED');
+      assert.equal(await content.getTrustedApprovedContent(contentPool, second.id), null);
+      const revised = await content.reviseTrustedContentDraft(
+        contentPool, second.id, 'Shorter specialty coffee message'
+      );
+      assert.equal(revised.contentRevision, 2);
+      const previousDecision = await contentStore.submitCustomerContentDecision(
+        contentPool, A, second.id,
+        { expectedRevision: 1, decision: 'APPROVE' }
+      );
+      assert.equal(previousDecision, null);
+      const currentDecision = await contentStore.submitCustomerContentDecision(
+        contentPool, A, second.id,
+        { expectedRevision: 2, decision: 'APPROVE' }
+      );
+      assert.equal((await content.processTrustedContentDecision(
+        contentPool, currentDecision.id
+      )).result, 'APPROVED');
+
+      // Starter: 3 Threads + 2 combined Facebook/Instagram per MYT day.
+      await content.createTrustedContentDraft(
+        contentPool, clientA, 'THREADS', 'Third coffee education post', day
+      );
+      await content.createTrustedContentDraft(
+        contentPool, clientA, 'THREADS', 'Fourth coffee education post', day
+      );
+      await content.createTrustedContentDraft(
+        contentPool, clientA, 'FB_IG', 'Fifth coffee education post', day
+      );
+      const overThreads = await content.createTrustedContentDraft(
+        contentPool, clientA, 'THREADS', 'Should be blocked', day
+      ).then(() => null, error => error);
+      assert.equal(overThreads?.code, '23514');
+      const overCrosspost = await content.createTrustedContentDraft(
+        contentPool, clientA, 'FB_IG', 'Also blocked', day
+      ).then(() => null, error => error);
+      assert.equal(overCrosspost?.code, '23514');
+
+      const forbiddenPrivateAction = await asUser(A,
+        'SELECT * FROM postbro_social.content_review_actions')
+        .then(() => null, error => error);
+      assert.equal(forbiddenPrivateAction?.code, '42501');
+
+      // Client brand change invalidates approval even for already reviewed post.
+      await admin.query('UPDATE postbro_social.clients SET tone=$2 WHERE id=$1',
+        [clientA, 'New brand voice']);
+      assert.equal(await content.getTrustedApprovedContent(contentPool, first.id), null);
+      const pending = await content.createTrustedContentDraft(
+        contentPool, clientA, 'THREADS', 'Should not create with stale persona', day
+      ).then(() => null, error => error);
+      assert.equal(pending?.message, 'approved_persona_required');
+    } finally {
+      await contentPool.end();
+    }
 
     // Four clients exist, then two independent transactions race for slot five.
     await admin.query('INSERT INTO postbro_social.clients (organization_id,plan,business_name) VALUES ($1,$2,$3)', [orgA, 'STARTER', 'Gamma']);

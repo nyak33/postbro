@@ -49,3 +49,15 @@ test('client review is not an automatic publishing or persona activation route',
   assert.doesNotMatch(script, /\.innerHTML\s*=|insertAdjacentHTML\s*\(/);
   assert.doesNotMatch(script, /localStorage|sessionStorage|document\.cookie/);
 });
+
+test('customer content queue is reviewed explicitly and never scheduled from browser', () => {
+  assert.match(html, /id="contentQueue"/);
+  assert.match(html, /Content approval queue/);
+  assert.match(script, /function renderContentQueue/);
+  assert.match(script, /'REQUEST_CHANGES'/);
+  assert.match(script, /'APPROVE'/);
+  assert.match(script, /result\.scheduled !== false/);
+  assert.match(script, /document\.createElement\('article'\)/);
+  assert.doesNotMatch(script, /\.innerHTML\s*=|insertAdjacentHTML\s*\(/);
+  assert.doesNotMatch(script, /\/public\/v1\/posts|'schedule'|type:\s*'now'/);
+});
