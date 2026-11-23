@@ -13,6 +13,7 @@ import {
 } from '../security/supabase-auth.js';
 import {
   listTenantClients, getTenantClient, saveTenantBrand, saveTenantHistory,
+  getPersonaReviewRequests, submitPersonaReviewRequest,
 } from './tenant-store.js';
 
 export interface PortalDependencies {
@@ -113,6 +114,23 @@ export function buildSocialPortalApp(deps: PortalDependencies): FastifyInstance 
     const client = await saveTenantHistory(deps.pool, user, request.params.id, request.body);
     if (!client) return reply.code(404).send({ error: 'not_found' });
     return { client };
+  });
+
+  // Review requests are an immutable client intent. They do not activate
+  // personas; a separate trusted adapter must process approved EXTERNAL_ENGINE drafts.
+  app.get<{ Params: { id: string } }>('/api/social/clients/:id/persona/reviews', async (request) => {
+    const user = await identity(request.headers.authorization);
+    const reviews = await getPersonaReviewRequests(deps.pool, user, request.params.id);
+    return { reviews };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/social/clients/:id/persona/reviews', async (request, reply) => {
+    const user = await identity(request.headers.authorization);
+    const review = await submitPersonaReviewRequest(
+      deps.pool, user, request.params.id, request.body
+    );
+    if (!review) return reply.code(404).send({ error: 'review_unavailable' });
+    return reply.code(201).send({ review, activated: false });
   });
 
   return app;
