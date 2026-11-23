@@ -10,6 +10,10 @@ const migrationSql = readFileSync(
   new URL('../migrations/001_social_foundation.sql', import.meta.url),
   'utf8'
 );
+const personaReviewMigrationSql = readFileSync(
+  new URL('../migrations/002_social_persona_review_requests.sql', import.meta.url),
+  'utf8'
+);
 
 function ensureDisposableUrl(url) {
   const db = new URL(url);
@@ -51,6 +55,7 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     await admin.query('GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated');
 
     await admin.query(migrationSql);
+    await admin.query(personaReviewMigrationSql);
 
     const A = '10000000-0000-4000-8000-000000000001';
     const B = '10000000-0000-4000-8000-000000000002';
@@ -173,6 +178,96 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal(updatedHistory.historyConsent, false);
     } finally {
       await tenantPool.end();
+    }
+
+    // PB-SOCIAL-004A: review decisions are version-bound, scoped and do NOT
+    // activate personas. Test against real PostgreSQL RLS, not only mock SQL.
+    const externalDraft = JSON.stringify({
+      source: 'EXTERNAL_ENGINE',
+      proposal: {
+        summary: 'Coffee education for adult home brewers',
+        writingStyle: 'Warm, practical and clear',
+        contentPillars: 'Brewing tips, equipment and community'
+      }
+    });
+    const mockDraft = JSON.stringify({
+      source: 'MOCK_PREVIEW',
+      proposal: {
+        summary: 'Demo only',
+        writingStyle: 'Friendly',
+        contentPillars: 'Education'
+      }
+    });
+    await admin.query(
+      "UPDATE postbro_social.clients SET persona_revision=3, persona_draft=$2::jsonb, status='PERSONA_REVIEW' WHERE id=$1",
+      [clientA, externalDraft]
+    );
+    await admin.query(
+      "UPDATE postbro_social.clients SET persona_revision=3, persona_draft=$2::jsonb, status='PERSONA_REVIEW' WHERE id=$1",
+      [clientB, mockDraft]
+    );
+
+    const reviewInsert = `INSERT INTO postbro_social.persona_review_requests
+      (client_id, persona_revision, requested_by, decision, suggested_changes)
+      VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`;
+    const blockedViewer = await asUser(V, reviewInsert, [clientA, 3, V, 'APPROVE', null])
+      .then(() => null, error => error);
+    assert.equal(blockedViewer?.code, '42501');
+    const blockedCrossTenant = await asUser(B, reviewInsert, [clientA, 3, B, 'APPROVE', null])
+      .then(() => null, error => error);
+    assert.equal(blockedCrossTenant?.code, '42501');
+    const blockedMock = await asUser(B, reviewInsert, [clientB, 3, B, 'APPROVE', null])
+      .then(() => null, error => error);
+    assert.equal(blockedMock?.code, '42501');
+    const blockedStale = await asUser(A, reviewInsert, [clientA, 2, A, 'APPROVE', null])
+      .then(() => null, error => error);
+    assert.equal(blockedStale?.code, '42501');
+    const blockedSpoof = await asUser(A, reviewInsert, [clientA, 3, B, 'APPROVE', null])
+      .then(() => null, error => error);
+    assert.equal(blockedSpoof?.code, '42501');
+    const deniedReviewRewrite = await asUser(A,
+      "UPDATE postbro_social.persona_review_requests SET decision='REQUEST_CHANGES' WHERE client_id=$1",
+      [clientA]).then(() => null, error => error);
+    assert.equal(deniedReviewRewrite?.code, '42501');
+
+    const reviewPool = new pg.Pool({ connectionString: DATABASE_URL });
+    try {
+      const store = await import('../dist/src/http/tenant-store.js');
+      const payload = { expectedRevision: 3, decision: 'APPROVE' };
+      const parallel = await Promise.all([
+        store.submitPersonaReviewRequest(reviewPool, A, clientA, payload),
+        store.submitPersonaReviewRequest(reviewPool, A, clientA, payload)
+      ]);
+      assert.equal(parallel.filter(Boolean).length, 1);
+      assert.equal(parallel.filter(row => row === null).length, 1);
+
+      const visibleA = await store.getPersonaReviewRequests(reviewPool, A, clientA);
+      assert.equal(visibleA.length, 1);
+      assert.equal(visibleA[0].decision, 'APPROVE');
+      const invisibleB = await store.getPersonaReviewRequests(reviewPool, B, clientA);
+      assert.equal(invisibleB.length, 0);
+      const reviewerView = await store.getPersonaReviewRequests(reviewPool, V, clientA);
+      assert.equal(reviewerView.length, 1); // Viewer may read, not write.
+
+      const afterReview = await admin.query(
+        'SELECT status, persona_approved_at, persona_approved_revision FROM postbro_social.clients WHERE id=$1',
+        [clientA]
+      );
+      assert.equal(afterReview.rows[0].status, 'PERSONA_REVIEW');
+      assert.equal(afterReview.rows[0].persona_approved_at, null);
+      assert.equal(afterReview.rows[0].persona_approved_revision, null);
+
+      const staleRequest = await store.submitPersonaReviewRequest(reviewPool, A, clientA, {
+        expectedRevision: 2, decision: 'REQUEST_CHANGES',
+        suggestedChanges: {
+          summary: 'Updated',
+          writingStyle: 'Warm',
+          contentPillars: 'Helpful tips'
+        }
+      });
+      assert.equal(staleRequest, null);
+    } finally {
+      await reviewPool.end();
     }
 
     // Simulate already approved persona before any client-initiated update.
