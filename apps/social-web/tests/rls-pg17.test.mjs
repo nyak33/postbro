@@ -22,6 +22,10 @@ const contentApprovalMigrationSql = readFileSync(
   new URL('../migrations/004_social_content_approval.sql', import.meta.url),
   'utf8'
 );
+const postizDispatchMigrationSql = readFileSync(
+  new URL('../migrations/005_postiz_draft_dispatches.sql', import.meta.url),
+  'utf8'
+);
 
 function ensureDisposableUrl(url) {
   const db = new URL(url);
@@ -66,6 +70,7 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     await admin.query(personaReviewMigrationSql);
     await admin.query(personaVersionsMigrationSql);
     await admin.query(contentApprovalMigrationSql);
+    await admin.query(postizDispatchMigrationSql);
 
     const A = '10000000-0000-4000-8000-000000000001';
     const B = '10000000-0000-4000-8000-000000000002';
@@ -546,6 +551,48 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal(draftOnly.posts[0].value[0].content,
         'How to prepare specialty coffee at home');
 
+      // PB-SOCIAL-005C: one durable attempt, even under concurrent workers.
+      // The fake Postiz API returns a documented-shaped response WITHOUT HTTP.
+      const dispatch = await import('../dist/src/postiz/draft-dispatch.js');
+      const prepared = await Promise.all([
+        dispatch.preparePostizDraftDispatch(
+          contentPool, first.id, dryRunMapping, dryRunConnections),
+        dispatch.preparePostizDraftDispatch(
+          contentPool, first.id, dryRunMapping, dryRunConnections)
+      ]);
+      assert.equal(prepared[0].id, prepared[1].id);
+      assert.equal(prepared[0].state, 'PREPARED');
+      const forgedMapping = { ...dryRunMapping, customerGroupId: 'client-elsewhere' };
+      const forged = await dispatch.preparePostizDraftDispatch(
+        contentPool, first.id, forgedMapping, dryRunConnections
+      ).then(() => null, error => error);
+      assert.ok(forged);
+      const claims = await Promise.allSettled([
+        dispatch.claimPostizDraftDispatch(
+          contentPool, prepared[0].id, dryRunMapping, dryRunConnections),
+        dispatch.claimPostizDraftDispatch(
+          contentPool, prepared[0].id, dryRunMapping, dryRunConnections)
+      ]);
+      assert.equal(claims.filter(x => x.status === 'fulfilled').length, 1);
+      const payload = claims.find(x => x.status === 'fulfilled').value;
+      assert.equal(payload.type, 'draft');
+      assert.equal(payload.posts.length, 1);
+      const fakeResponse = [{
+        postId: 'mock_draft_12345', integration: 'postiz_threads_123'
+      }];
+      assert.equal(await dispatch.finishPostizDraftDispatch(
+        contentPool, prepared[0].id, { kind: 'confirmed', response: fakeResponse }),
+      'CONFIRMED');
+      const replay = await dispatch.claimPostizDraftDispatch(
+        contentPool, prepared[0].id, dryRunMapping, dryRunConnections
+      ).then(() => null, error => error);
+      assert.equal(replay?.message, 'postiz_dispatch_already_attempted');
+      const privateDispatchRead = await asUser(A,
+        'SELECT id FROM postbro_social.postiz_draft_dispatches'
+      ).then(() => null, error => error);
+      assert.equal(privateDispatchRead?.code, '42501');
+
+
       const second = await content.createTrustedContentDraft(
         contentPool, clientA, 'FB_IG', 'Second coffee post', day
       );
@@ -576,6 +623,45 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal((await content.processTrustedContentDecision(
         contentPool, currentDecision.id
       )).result, 'APPROVED');
+
+      // Mark a claimed but unconfirmed crossposted draft as uncertain.
+      const fbMapping = {
+        clientId: clientA, customerGroupId: 'client-test-group-123',
+        integrationIds: {
+          facebook: 'postiz_facebook_123', instagram: 'postiz_instagram_123'
+        }
+      };
+      const fbConnections = [
+        { id: 'postiz_facebook_123', identifier: 'facebook',
+          disabled: false, customer: { id: 'client-test-group-123' } },
+        { id: 'postiz_instagram_123', identifier: 'instagram',
+          disabled: false, customer: { id: 'client-test-group-123' } }
+      ];
+      const media = [{
+        id: 'postiz_image_123', path: 'https://media.example.com/photo.jpg',
+        status: 'ready'
+      }];
+      const readyFB = await dispatch.preparePostizDraftDispatch(
+        contentPool, second.id, fbMapping, fbConnections, media
+      );
+      const fbPayload = await dispatch.claimPostizDraftDispatch(
+        contentPool, readyFB.id, fbMapping, fbConnections, media
+      );
+      assert.equal(fbPayload.type, 'draft');
+      assert.equal(await dispatch.finishPostizDraftDispatch(
+        contentPool, readyFB.id, { kind: 'ambiguous' }),
+      'NEEDS_RECONCILIATION');
+      const cannotRetry = await dispatch.claimPostizDraftDispatch(
+        contentPool, readyFB.id, fbMapping, fbConnections, media
+      ).then(() => null, error => error);
+      assert.equal(cannotRetry?.message, 'postiz_dispatch_already_attempted');
+      const ledger = await admin.query(
+        'SELECT state, provider_posts FROM postbro_social.postiz_draft_dispatches WHERE id=$1',
+        [readyFB.id]
+      );
+      assert.equal(ledger.rows[0].state, 'NEEDS_RECONCILIATION');
+      assert.deepEqual(ledger.rows[0].provider_posts, []);
+
 
       // Starter: 3 Threads + 2 combined Facebook/Instagram per MYT day.
       await content.createTrustedContentDraft(
