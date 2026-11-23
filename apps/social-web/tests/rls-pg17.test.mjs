@@ -14,6 +14,10 @@ const personaReviewMigrationSql = readFileSync(
   new URL('../migrations/002_social_persona_review_requests.sql', import.meta.url),
   'utf8'
 );
+const personaVersionsMigrationSql = readFileSync(
+  new URL('../migrations/003_social_persona_versions.sql', import.meta.url),
+  'utf8'
+);
 
 function ensureDisposableUrl(url) {
   const db = new URL(url);
@@ -56,6 +60,7 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
 
     await admin.query(migrationSql);
     await admin.query(personaReviewMigrationSql);
+    await admin.query(personaVersionsMigrationSql);
 
     const A = '10000000-0000-4000-8000-000000000001';
     const B = '10000000-0000-4000-8000-000000000002';
@@ -295,6 +300,143 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal(staleRequest, null);
     } finally {
       await reviewPool.end();
+    }
+
+    // PB-SOCIAL-004C: trusted draft and activation lifecycle, with actual
+    // PostgreSQL 17.11 transactions and RLS grants.
+    const workflow = await import('../dist/src/persona/trusted-workflow.js');
+    const trustedPool = new pg.Pool({ connectionString: DATABASE_URL });
+    const privateCliCalls = [];
+    const fakePrivateRunner = async args => {
+      privateCliCalls.push([...args]);
+      const command = args.slice(0, 2).join(' ');
+      if (command === 'session create') {
+        return JSON.stringify({ session: { id: 'session_test123456789012' } });
+      }
+      if (command === 'session patch') {
+        const jsonIndex = args.indexOf('--json');
+        const parsed = JSON.parse(args[jsonIndex + 1]);
+        fakePrivateRunner.patch = parsed;
+        return JSON.stringify({ sessionId: 'session_test123456789012', status: { ready: true } });
+      }
+      if (command === 'persona finalize') {
+        const patch = fakePrivateRunner.patch;
+        return JSON.stringify({ persona: {
+          id: 'persona_test123456789012', schemaVersion: '1.0',
+          version: 1, name: 'Beta', base: {
+            ...patch, engagementBehavior: {}
+          }, contexts: [], learnedPreferences: []
+        } });
+      }
+      throw Error('unexpected private CLI command');
+    };
+    try {
+      // Mock draft must be invalidated before creating a real-engine one.
+      await admin.query(
+        "UPDATE postbro_social.clients SET status='ONBOARDING', persona_draft=NULL, persona_revision=4 WHERE id=$1",
+        [clientB]
+      );
+      const prepared = await workflow.generateAndSaveTrustedPersona(
+        trustedPool, clientB, fakePrivateRunner
+      );
+      assert.equal(prepared.revision, 5);
+      assert.equal(prepared.state, 'PERSONA_REVIEW');
+      assert.equal(privateCliCalls.length, 3);
+      assert.equal(await workflow.getTrustedApprovedPersonaRecord(trustedPool, clientB), null);
+      const version = await admin.query(
+        'SELECT engine_record, proposal FROM postbro_social.persona_versions WHERE client_id=$1 AND revision=5',
+        [clientB]
+      );
+      assert.equal(version.rowCount, 1);
+      assert.equal(version.rows[0].engine_record.base.identity.niche, 'Coffee');
+
+      // Full private engine record is not accessible to authenticated members.
+      const privateReadDenied = await asUser(B,
+        'SELECT engine_record FROM postbro_social.persona_versions WHERE client_id=$1', [clientB]
+      ).then(() => null, error => error);
+      assert.equal(privateReadDenied?.code, '42501');
+
+      const afterPrepare = await store.getTenantClient(trustedPool, B, clientB);
+      assert.equal(afterPrepare.personaDraft.source, 'EXTERNAL_ENGINE');
+      assert.equal(afterPrepare.personaDraft.engineRecord, undefined);
+      assert.equal(afterPrepare.status, 'PERSONA_REVIEW');
+      assert.equal(afterPrepare.personaApprovedRevision, null);
+
+      const request = await store.submitPersonaReviewRequest(trustedPool, B, clientB,
+        { expectedRevision: 5, decision: 'APPROVE' });
+      assert.ok(request?.id);
+      // Request is only intent: no active private record before trusted processing.
+      assert.equal(await workflow.getTrustedApprovedPersonaRecord(trustedPool, clientB), null);
+      const approvalResult = await workflow.processTrustedPersonaReview(trustedPool, request.id);
+      assert.deepEqual(approvalResult, { reviewRequestId: request.id, result: 'ACTIVATED' });
+      const duplicateResult = await workflow.processTrustedPersonaReview(trustedPool, request.id);
+      assert.deepEqual(duplicateResult, approvalResult);
+      const approved = await workflow.getTrustedApprovedPersonaRecord(trustedPool, clientB);
+      assert.equal(approved.id, 'persona_test123456789012');
+
+      const actionRows = await admin.query(
+        'SELECT result FROM postbro_social.persona_review_actions WHERE review_request_id=$1',
+        [request.id]
+      );
+      assert.deepEqual(actionRows.rows.map(x => x.result), ['ACTIVATED']);
+
+      // Brand change revokes activated record immediately.
+      const changedBrand = await store.saveTenantBrand(trustedPool, B, clientB, {
+        businessName: 'Beta', niche: 'Coffee', audience: 'Adults',
+        language: 'English', tone: 'Direct', restrictions: '', samplePosts: ''
+      });
+      assert.equal(changedBrand.status, 'ONBOARDING');
+      assert.equal(changedBrand.personaApprovedRevision, null);
+      assert.equal(await workflow.getTrustedApprovedPersonaRecord(trustedPool, clientB), null);
+
+      // Stale review for another client has no corresponding version and
+      // must be logged as STALE; this cannot activate a mock row.
+      const oldReviewId = (await admin.query(
+        "SELECT id FROM postbro_social.persona_review_requests WHERE client_id=$1",
+        [clientA]
+      )).rows[0].id;
+      const stale = await workflow.processTrustedPersonaReview(trustedPool, oldReviewId);
+      assert.equal(stale.result, 'STALE');
+
+      // Now run another version through explicit REQUEST_CHANGES.
+      const nextDraft = await workflow.generateAndSaveTrustedPersona(
+        trustedPool, clientB, fakePrivateRunner
+      );
+      const revision = nextDraft.revision;
+      const changeRequest = await store.submitPersonaReviewRequest(
+        trustedPool, B, clientB, {
+          expectedRevision: revision, decision: 'REQUEST_CHANGES',
+          suggestedChanges: {
+            summary: 'Focus on manual coffee brewing',
+            writingStyle: 'Short sentences',
+            contentPillars: 'Pour-over, grinding and freshness'
+          }
+        }
+      );
+      const changes = await workflow.processTrustedPersonaReview(trustedPool, changeRequest.id);
+      assert.equal(changes.result, 'REVISION_REQUIRED');
+      const afterChanges = await store.getTenantClient(trustedPool, B, clientB);
+      assert.equal(afterChanges.status, 'ONBOARDING');
+      assert.equal(afterChanges.personaRevision, revision + 1);
+      assert.equal(afterChanges.personaDraft, null);
+      assert.equal(await workflow.getTrustedApprovedPersonaRecord(trustedPool, clientB), null);
+      const replay = await workflow.processTrustedPersonaReview(trustedPool, changeRequest.id);
+      assert.equal(replay.result, 'REVISION_REQUIRED');
+
+      const rejectedStale = await workflow.generateAndSaveTrustedPersona(
+        trustedPool, clientB, async args => {
+          if (args[0] === 'session' && args[1] === 'patch') {
+            await admin.query(
+              'UPDATE postbro_social.clients SET tone=$2 WHERE id=$1',
+              [clientB, 'Changed again']
+            );
+          }
+          return fakePrivateRunner(args);
+        }
+      ).then(() => null, error => error);
+      assert.ok(rejectedStale instanceof workflow.PersonaWorkflowConflict);
+    } finally {
+      await trustedPool.end();
     }
 
     // Restore the legacy revision-regression fixture to its original
