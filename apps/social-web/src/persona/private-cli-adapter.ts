@@ -176,11 +176,22 @@ export async function prepareExternalPersonaDraft(
     const base = mustObject(persona.base);
     const identity = mustObject(base.identity);
     const voice = mustObject(base.voice);
+    mustObject(base.contentBehavior);
+    mustObject(base.engagementBehavior);
+    if (!Array.isArray(base.capabilities) ||
+        !base.capabilities.includes('content') ||
+        !base.capabilities.includes('engagement') ||
+        !Array.isArray(base.examples) ||
+        !Array.isArray(persona.contexts) ||
+        !Array.isArray(persona.learnedPreferences)) {
+      throw new PrivatePersonaAdapterError();
+    }
     if (persona.schemaVersion !== '1.0' ||
         typeof persona.id !== 'string' ||
         !/^persona_[a-zA-Z0-9_-]{8,128}$/.test(persona.id) ||
         !Number.isSafeInteger(persona.version) ||
         (persona.version as number) < 1 ||
+        identity.summary !== summary ||
         identity.niche !== brand.niche ||
         identity.audience !== brand.audience ||
         voice.tone !== brand.tone ||
