@@ -41,7 +41,7 @@ FOR SELECT TO authenticated USING (
     SELECT 1
     FROM postbro_social.clients AS c
     JOIN postbro_social.memberships AS m ON m.organization_id = c.organization_id
-    WHERE c.id = client_id
+    WHERE c.id = persona_review_requests.client_id
       AND m.user_id = (SELECT auth.uid())
   )
 );
@@ -56,11 +56,11 @@ FOR INSERT TO authenticated WITH CHECK (
     SELECT 1
     FROM postbro_social.clients AS c
     JOIN postbro_social.memberships AS m ON m.organization_id = c.organization_id
-    WHERE c.id = client_id
+    WHERE c.id = persona_review_requests.client_id
       AND m.user_id = (SELECT auth.uid())
       AND m.role IN ('owner', 'editor')
       AND c.status = 'PERSONA_REVIEW'
-      AND c.persona_revision = persona_revision
+      AND c.persona_revision = persona_review_requests.persona_revision
       AND c.persona_draft IS NOT NULL
       AND c.persona_draft->>'source' = 'EXTERNAL_ENGINE'
   )
