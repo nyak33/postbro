@@ -45,7 +45,7 @@ test('client persona review is visible only for a trusted engine draft', () => {
 });
 
 test('client review is not an automatic publishing or persona activation route', () => {
-  assert.doesNotMatch(script, /\/api\/postiz|\/api\/publish|/api\/persona\/activate/);
+  assert.doesNotMatch(script, new RegExp(['/api/postiz', '/api/publish', '/api/persona/activate'].join('|')));
   assert.doesNotMatch(script, /\.innerHTML\s*=|insertAdjacentHTML\s*\(/);
   assert.doesNotMatch(script, /localStorage|sessionStorage|document\.cookie/);
 });
