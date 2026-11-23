@@ -32,3 +32,20 @@ test('browser sessions are memory-only and data routes demand Bearer token', () 
   assert.match(script, /resetSession/);
   assert.doesNotMatch(script, /refresh_token/);
 });
+
+test('client persona review is visible only for a trusted engine draft', () => {
+  assert.match(html, /id="personaReviewPanel"/);
+  assert.match(html, /id="requestPersonaChanges"/);
+  assert.match(html, /id="approvePersona"/);
+  assert.match(script, /draft\.source !== 'EXTERNAL_ENGINE'/);
+  assert.match(script, /client\.personaRevision/);
+  assert.match(script, /'\/persona\/reviews'/);
+  assert.match(script, /response\.activated !== false/);
+  assert.match(html + script, /NOT active|not activate|Nothing is activated/);
+});
+
+test('client review is not an automatic publishing or persona activation route', () => {
+  assert.doesNotMatch(script, /\/api\/postiz|\/api\/publish|/api\/persona\/activate/);
+  assert.doesNotMatch(script, /\.innerHTML\s*=|insertAdjacentHTML\s*\(/);
+  assert.doesNotMatch(script, /localStorage|sessionStorage|document\.cookie/);
+});
