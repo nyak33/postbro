@@ -21,19 +21,19 @@ function mockedPool() {
       return {
         async query(sql: string, params: unknown[] = []) {
           statements.push(sql);
-          if (sql.includes('FROM postbro_social.content_drafts')) {
-            return { rows: params[0] === CLIENT ? [{
-              id: DRAFT, clientId: CLIENT, personaRevision: 1,
-              contentRevision: 1, surface: 'THREADS', status: 'IN_REVIEW',
-              body: 'Please review this content.'
-            }] : [], rowCount: 1 };
-          }
           if (sql.startsWith('INSERT INTO postbro_social.content_review_requests')) {
             return { rows: [{
               id: USER, draftId: params[0],
               contentRevision: params[1], requestedBy: params[2],
               decision: params[3], comment: params[4]
             }] };
+          }
+          if (sql.includes('FROM postbro_social.content_drafts')) {
+            return { rows: params[0] === CLIENT ? [{
+              id: DRAFT, clientId: CLIENT, personaRevision: 1,
+              contentRevision: 1, surface: 'THREADS', status: 'IN_REVIEW',
+              body: 'Please review this content.'
+            }] : [], rowCount: 1 };
           }
           return { rows: [], rowCount: 0 };
         },
