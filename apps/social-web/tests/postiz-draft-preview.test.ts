@@ -68,7 +68,7 @@ test('FB/IG requires a ready image already uploaded in Postiz media library', ()
   assert.deepEqual(result.posts.map(p => p.integration.id), [
     ids.facebook, ids.instagram
   ]);
-  assert.ok(result.posts.every(p => p.value[0].image.length === 1));
+  assert.ok(result.posts.every(p => p.value[0]?.image.length === 1));
 });
 
 test('wrong tenant group, disabled channel, absent channel or provider mismatch fails closed', () => {
@@ -92,7 +92,7 @@ test('wrong tenant group, disabled channel, absent channel or provider mismatch 
     threadsContent, mapping, spoofed
   ), /unverified_postiz_integration/);
   assert.throws(() => buildPostizDraftPreview(
-    threadsContent, mapping, [...integrations, integrations[0]]
+    threadsContent, mapping, [...integrations, integrations[0]!]
   ), /unverified_postiz_integration/);
 });
 
