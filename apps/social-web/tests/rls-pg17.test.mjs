@@ -499,6 +499,10 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal(first.status, 'IN_REVIEW');
       assert.equal(first.contentRevision, 1);
       assert.equal(await content.getTrustedApprovedContent(contentPool, first.id), null);
+      const nowStale = await postiz.previewApprovedPostizDraft(
+        contentPool, first.id, dryRunMapping, dryRunConnections
+      ).then(() => null, error => error);
+      assert.equal(nowStale?.message, 'content_not_approved');
 
       const viewerDrafts = await contentStore.listCustomerContent(contentPool, V, clientA);
       assert.equal(viewerDrafts.length, 1); // viewer reads but cannot approve
@@ -527,6 +531,25 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       assert.equal(repeated.result, 'APPROVED');
       const approvedContent = await content.getTrustedApprovedContent(contentPool, first.id);
       assert.equal(approvedContent.body, 'How to prepare specialty coffee at home');
+
+      // PB-SOCIAL-005B: verify complete approved-content-to-Postiz DRAFT
+      // payload with actual DB approval, without any HTTP or Postiz network.
+      const postiz = await import('../dist/src/postiz/draft-preview.js');
+      const dryRunMapping = {
+        clientId: clientA, customerGroupId: 'client-test-group-123',
+        integrationIds: { threads: 'postiz_threads_123' }
+      };
+      const dryRunConnections = [{
+        id: 'postiz_threads_123', identifier: 'threads',
+        disabled: false, customer: { id: 'client-test-group-123' }
+      }];
+      const draftOnly = await postiz.previewApprovedPostizDraft(
+        contentPool, first.id, dryRunMapping, dryRunConnections
+      );
+      assert.equal(draftOnly.type, 'draft');
+      assert.deepEqual(draftOnly.posts.map(p => p.settings.__type), ['threads']);
+      assert.equal(draftOnly.posts[0].value[0].content,
+        'How to prepare specialty coffee at home');
 
       const second = await content.createTrustedContentDraft(
         contentPool, clientA, 'FB_IG', 'Second coffee post', day
