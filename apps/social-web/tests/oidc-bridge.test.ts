@@ -80,11 +80,13 @@ test('rejects state tampering and incorrect cookies without contacting token end
 });
 
 test('exchanges PKCE code and exposes an encrypted session only to a matching cookie key', async () => {
-  const seen: { url?: string; method?: string; body?: string } = {};
+  const seen: { url?: string; method?: string; body?: string; basic?: string } = {};
   const mockFetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     seen.url = String(input);
     if (init?.method) seen.method = init.method;
     seen.body = String(init?.body);
+    const auth = new Headers(init?.headers).get('authorization');
+    if (auth) seen.basic = auth;
     return new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3600 }), { status: 200 });
   }) as typeof fetch;
   const bridge = new SocialSsoBridge(config(mockFetch));
@@ -97,6 +99,9 @@ test('exchanges PKCE code and exposes an encrypted session only to a matching co
   assert.ok((body.get('code_verifier') || '').length >= 43);
   assert.equal(body.get('grant_type'), 'authorization_code');
   assert.equal(body.get('redirect_uri'), CALLBACK);
+  assert.equal(body.has('client_secret'), false);
+  assert.equal(body.has('client_id'), false);
+  assert.equal(seen.basic, 'Basic ' + Buffer.from('test-sso-client:' + CLIENT_SECRET).toString('base64'));
   assert.equal(bridge.bearerFromCookie(cookieValue(login)), 'Bearer ' + ACCESS);
   assert.match(login, /HttpOnly; Secure; SameSite=Lax/);
   assert.doesNotMatch(login, /Domain=/);
