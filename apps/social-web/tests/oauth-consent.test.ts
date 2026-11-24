@@ -25,7 +25,7 @@ test('consent is off by default and refuses incomplete or unsafe configuration',
 });
 
 function fixture() {
-  let calls: string[] = [];
+  const calls: string[] = [];
   let scenario = 'normal';
   const app = buildSocialPortalApp({
     pool: {} as Pick<Pool, 'connect'>,
