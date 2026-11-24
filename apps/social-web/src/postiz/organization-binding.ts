@@ -8,7 +8,8 @@
  */
 import type { Pool } from 'pg';
 import { requireUuid } from '../http/tenant-store.js';
-import type { PostizReadOnlyTransport } from './read-only-preflight.js';
+import { verifyPostizClientChannels, type PostizReadOnlyTransport, type SocialSurface } from './read-only-preflight.js';
+import type { PostizClientMapping, VerifiedPostizIntegration } from './draft-preview.js';
 
 export class PostizOrganizationLinkError extends Error {
   constructor() { super('postiz_organization_link_unavailable'); }
@@ -108,4 +109,28 @@ export async function verifyPostizOrganizationIdentity(
     throw new PostizOrganizationLinkError();
   }
   return { organizationId: link.postizOrganizationId };
+}
+
+/**
+ * Trusted worker gate: only a private VERIFIED org link plus fresh Postiz
+ * /me, groups and integration reads can produce a tenant-safe draft mapping.
+ * This function is never exposed to the browser and never dispatches posts.
+ */
+export async function verifyPostizClientMappingForWorker(
+  pool: Pick<Pool, 'connect'>,
+  clientId: string,
+  expectedPostizOrigin: string,
+  integrationIds: PostizClientMapping['integrationIds'],
+  surface: SocialSurface,
+  transport: PostizReadOnlyTransport,
+): Promise<{ mapping: PostizClientMapping; integrations: VerifiedPostizIntegration[] }> {
+  const link = await loadVerifiedPostizOrganizationLink(pool, clientId, expectedPostizOrigin);
+  await verifyPostizOrganizationIdentity(link, expectedPostizOrigin, transport);
+  const mapping: PostizClientMapping = {
+    clientId: link.clientId,
+    customerGroupId: link.postizCustomerGroupId,
+    integrationIds,
+  };
+  const integrations = await verifyPostizClientChannels(mapping, surface, transport);
+  return { mapping, integrations };
 }
