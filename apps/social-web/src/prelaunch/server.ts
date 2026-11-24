@@ -18,6 +18,7 @@ export function buildPrelaunchApp(config: SocialPrelaunchConfig, pool: PoolType)
       publishableKey: config.publishableKey,
     },
     ...(config.sso ? { sso: config.sso } : {}),
+    ...(config.consent ? { consent: config.consent } : {}),
   });
 
   // This is process liveness, NOT proof of database/SMTP/Auth readiness.
