@@ -140,8 +140,6 @@ export class SocialSsoBridge {
 
     const form = new URLSearchParams({
       grant_type: 'authorization_code',
-      client_id: this.options.clientId,
-      client_secret: this.options.clientSecret,
       code: p.code,
       redirect_uri: this.options.callbackUrl,
       code_verifier: flow.verifier,
@@ -150,7 +148,12 @@ export class SocialSsoBridge {
     try {
       result = await (this.options.fetcher ?? fetch)(
         new URL('/auth/v1/oauth/token', this.options.supabaseUrl),
-        { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        { method: 'POST', headers: {
+            'content-type': 'application/x-www-form-urlencoded',
+            authorization: 'Basic ' + Buffer.from(
+              this.options.clientId + ':' + this.options.clientSecret, 'utf8'
+            ).toString('base64'),
+          },
           body: form, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(6000) }
       );
       if (!result.ok) throw new SocialSsoError();
