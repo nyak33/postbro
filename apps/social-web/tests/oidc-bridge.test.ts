@@ -70,8 +70,12 @@ test('rejects state tampering and incorrect cookies without contacting token end
   const code = 'VALIDCODE' + 'a'.repeat(16);
   await assert.rejects(() => bridge.callback({ state: 'wrong', code },
     cookieValue(cookie)), SocialSsoError);
+  const original = cookieValue(cookie);
+  const middle = Math.floor(original.length / 2);
+  const tampered = original.slice(0, middle) +
+    (original[middle] === 'A' ? 'B' : 'A') + original.slice(middle + 1);
   await assert.rejects(() => bridge.callback({ state, code },
-    cookieValue(cookie).slice(0, -1) + 'x'), SocialSsoError);
+    tampered), SocialSsoError);
   await assert.rejects(() => bridge.callback({ state, code },
     undefined), SocialSsoError);
   await assert.rejects(() => bridge.callback({ state, code, error: 'denied' },
