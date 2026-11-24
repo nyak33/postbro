@@ -7,6 +7,7 @@
 const $ = id => document.getElementById(id);
 let config = null;
 let session = null;
+let ssoEnabled = false;
 let emailForVerification = '';
 let clients = [];
 let chosenClientId = null;
@@ -54,15 +55,15 @@ async function authCall(path, body) {
 }
 
 async function clientApi(method, path, body) {
-  if (!session?.accessToken) throw new Error('Sign in again to continue.');
-  if (Date.now() > session.expiresAt) {
+  if (!session?.accessToken && !ssoEnabled) throw new Error('Sign in again to continue.');
+  if (session?.accessToken && Date.now() > session.expiresAt) {
     resetSession('Your sign-in has expired. Please sign in again.');
     throw new Error('Session expired.');
   }
   const response = await fetch('/api/social' + path, {
     method,
     headers: {
-      authorization: 'Bearer ' + session.accessToken,
+      ...(session?.accessToken ? { authorization: 'Bearer ' + session.accessToken } : {}),
       ...(body === undefined ? {} : { 'content-type': 'application/json' })
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -427,8 +428,17 @@ $('requestPersonaChanges').addEventListener('click', () => {
   void submitPersonaReview('REQUEST_CHANGES');
 });
 
-$('signOut').addEventListener('click', () => {
-  resetSession('This tab session has ended. Existing access tokens are not server-revoked.');
+$('ssoSignIn').addEventListener('click', () => {
+  if (ssoEnabled) window.location.assign('/api/social/sso/start');
+});
+
+$('signOut').addEventListener('click', async () => {
+  if (ssoEnabled && !session?.accessToken) {
+    try {
+      await fetch('/api/social/sso/logout', { method: 'POST', cache: 'no-store' });
+    } catch { /* Do not expose authentication internals. */ }
+  }
+  resetSession('Signed out of PostBro. Your shared identity provider may remain signed in.');
 });
 
 (async () => {
@@ -445,7 +455,24 @@ $('signOut').addEventListener('click', () => {
       throw new Error('Invalid portal configuration.');
     }
     config = data;
-    status('Ready. Sign in with the email invited by PostBro.');
+    ssoEnabled = data.ssoEnabled === true;
+    $('ssoSignIn').hidden = !ssoEnabled;
+    if (ssoEnabled) {
+      const check = await fetch('/api/social/sso/session', {
+        headers: { accept: 'application/json' }, cache: 'no-store'
+      });
+      if (check.status === 200) {
+        await loadClients();
+      } else if (check.status === 401) {
+        // Existing Supabase IdP session handles the login silently when possible.
+        // No Postiz cookies or credentials are read by PostBro.
+        window.location.replace('/api/social/sso/start');
+      } else {
+        status('Shared login is temporarily unavailable. Try again.', true);
+      }
+    } else {
+      status('Ready. Sign in with the email invited by PostBro.');
+    }
   } catch {
     status('Portal configuration is unavailable. Contact the administrator.', true);
   }
