@@ -81,7 +81,7 @@ test('rejects state tampering and incorrect cookies without contacting token end
 
 test('exchanges PKCE code and exposes an encrypted session only to a matching cookie key', async () => {
   const seen: { url?: string; method?: string; body?: string } = {};
-  const mockFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const mockFetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     seen.url = String(input);
     seen.method = init?.method;
     seen.body = String(init?.body);
