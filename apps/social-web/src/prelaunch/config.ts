@@ -6,12 +6,16 @@
  * No secrets or connection strings are returned in thrown errors.
  */
 import type { PoolConfig } from 'pg';
+import { parseConsentEnv, type ConsentOptions } from '../http/oauth-consent.js';
+import { validateSocialSsoOptions, type SocialSsoOptions } from '../security/oidc-bridge.js';
 
 export interface SocialPrelaunchConfig {
   projectRef: string;
   supabaseUrl: string;
   publishableKey: string;
   databasePool: PoolConfig;
+  sso?: SocialSsoOptions;
+  consent?: ConsentOptions;
   host: '127.0.0.1' | '::1';
   port: number;
 }
@@ -108,9 +112,30 @@ export function parseSocialPrelaunchConfig(
   if (!Number.isSafeInteger(port) || port < 1024 ||
       port > 65535 || port === 3000 || port === 5432) return configError();
 
+  let sso: SocialSsoOptions | undefined;
+  const ssoFlag = env.SOCIAL_PRELAUNCH_SSO_ENABLED;
+  if (ssoFlag && ssoFlag !== 'true' && ssoFlag !== 'false') return configError();
+  if (ssoFlag === 'true') {
+    try {
+      sso = validateSocialSsoOptions({
+        supabaseUrl: url,
+        clientId: env.SOCIAL_PRELAUNCH_SSO_CLIENT_ID ?? '',
+        clientSecret: env.SOCIAL_PRELAUNCH_SSO_CLIENT_SECRET ?? '',
+        callbackUrl: env.SOCIAL_PRELAUNCH_SSO_CALLBACK_URL ?? '',
+        cookieKey: env.SOCIAL_PRELAUNCH_SSO_COOKIE_KEY ?? '',
+      });
+    } catch { return configError(); }
+  }
+
+  let consent: ConsentOptions | undefined;
+  try { consent = parseConsentEnv(env); } catch { return configError(); }
+  if (consent && sso && consent.origin !== new URL(sso.callbackUrl).origin) return configError();
+
   return {
     projectRef,
     supabaseUrl: url,
+    ...(consent ? { consent } : {}),
+    ...(sso ? { sso } : {}),
     publishableKey,
     databasePool,
     host,

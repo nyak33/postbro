@@ -22,13 +22,14 @@
   <main>
     <div class="banner" role="note">
       Invite-only access. No customer can create their own account or join another business.
-      This portal stores your login tokens in this tab's memory only: refreshing the page signs you out.
+      Email-code login keeps its token in this tab only. Shared SSO uses a short-lived encrypted, HttpOnly session cookie.
       Publishing and Persona Engine approval are not enabled.
     </div>
     <p id="portalMessage" role="status" aria-live="polite" class="status-line">Checking portal configuration…</p>
 
     <section id="loginPanel" class="card" aria-labelledby="loginHeading">
-      <h2 id="loginHeading">Sign in with your invited email</h2>
+      <h2 id="loginHeading">Sign in to PostBro Social</h2>
+      <div class="actions"><button id="ssoSignIn" type="button" hidden>Continue with shared login</button></div>
       <p class="muted">We will send a one-time verification code. Only accounts previously invited by PostBro can sign in.</p>
       <form id="loginForm">
         <label class="field">Email address
