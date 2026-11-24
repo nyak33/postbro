@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import type { Pool } from 'pg';
 import {
   loadVerifiedPostizOrganizationLink, PostizOrganizationLinkError,
-  validatedPostizOrigin, verifyPostizOrganizationIdentity
+  validatedPostizOrigin, verifyPostizOrganizationIdentity,
+  verifyPostizClientMappingForWorker
 } from '../src/postiz/organization-binding.js';
 import { createPostizReadOnlyTransport } from '../src/postiz/read-only-preflight.js';
 
@@ -133,4 +134,46 @@ test('private DB resolver denies missing/revoked mappings and always releases co
     PostizOrganizationLinkError
   );
   assert.equal(released, 1);
+});
+
+test('trusted mapping requires matching Postiz organization, group and channel in that order', async () => {
+  let groupsRead = 0;
+  const pool = {
+    async connect() {
+      return {
+        async query() { return { rows: [{
+          client_id: CLIENT,
+          postiz_instance_origin: POSTIZ,
+          postiz_organization_id: 'org_client_1',
+          postiz_customer_group_id: 'group_client_1'
+        }] }; },
+        release() {}
+      };
+    }
+  } as unknown as Pick<Pool, 'connect'>;
+  const integrationId = 'threads_client_123456';
+  const transport = {
+    async me() { return { organization: { id: 'org_client_1' } }; },
+    async groups() { groupsRead++; return [{ id: 'group_client_1', name: 'Client One' }]; },
+    async integrations(groupId: string) {
+      assert.equal(groupId, 'group_client_1');
+      return [{ id: integrationId, identifier: 'threads', disabled: false,
+        customer: { id: 'group_client_1' } }];
+    }
+  };
+  const actual = await verifyPostizClientMappingForWorker(
+    pool, CLIENT, POSTIZ, { threads: integrationId }, 'THREADS', transport
+  );
+  assert.equal(actual.mapping.clientId, CLIENT);
+  assert.equal(actual.mapping.customerGroupId, 'group_client_1');
+  assert.deepEqual(actual.integrations.map(i => i.id), [integrationId]);
+  assert.equal(groupsRead, 1);
+
+  groupsRead = 0;
+  await assert.rejects(() => verifyPostizClientMappingForWorker(
+    pool, CLIENT, POSTIZ, { threads: integrationId }, 'THREADS', {
+      ...transport,
+      async me() { return { organization: { id: 'org_another_client' } }; }
+    }), PostizOrganizationLinkError);
+  assert.equal(groupsRead, 0);
 });
