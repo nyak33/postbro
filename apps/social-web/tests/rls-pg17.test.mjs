@@ -26,6 +26,10 @@ const postizDispatchMigrationSql = readFileSync(
   new URL('../migrations/005_postiz_draft_dispatches.sql', import.meta.url),
   'utf8'
 );
+const postizOrgLinkMigrationSql = readFileSync(
+  new URL('../migrations/006_postiz_organization_links.sql', import.meta.url),
+  'utf8'
+);
 
 function ensureDisposableUrl(url) {
   const db = new URL(url);
@@ -71,6 +75,7 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
     await admin.query(personaVersionsMigrationSql);
     await admin.query(contentApprovalMigrationSql);
     await admin.query(postizDispatchMigrationSql);
+    await admin.query(postizOrgLinkMigrationSql);
 
     const A = '10000000-0000-4000-8000-000000000001';
     const B = '10000000-0000-4000-8000-000000000002';
@@ -98,6 +103,22 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
       );
     }
 
+    // The link is PRIVATE even from a legitimately signed-in tenant member.
+    await admin.query(`INSERT INTO postbro_social.postiz_organization_links
+      (client_id, postiz_instance_origin, postiz_organization_id,
+       postiz_customer_group_id, state, verification_method, verified_at, verified_by)
+      VALUES ($1,$2,$3,$4,'VERIFIED','OPERATOR_POSTIZ_ME_AND_MEMBERSHIP',now(),$5)`,
+      [clientA, 'https://postiz-staging.syaqirshaq.online', 'org_client_A', 'group_client_A', A]);
+    const bound = await admin.query(
+      'SELECT state FROM postbro_social.postiz_organization_links WHERE client_id=$1', [clientA]);
+    assert.equal(bound.rows[0]?.state, 'VERIFIED');
+    const duplicateOrg = await admin.query(`INSERT INTO postbro_social.postiz_organization_links
+      (client_id, postiz_instance_origin, postiz_organization_id, postiz_customer_group_id)
+      VALUES ($1,$2,$3,$4)`,
+      [clientB, 'https://postiz-staging.syaqirshaq.online', 'org_client_A', 'group_client_B'])
+      .then(() => null, error => error);
+    assert.equal(duplicateOrg?.code, '23505');
+
     async function asUser(userId, query, params = [], role = 'authenticated') {
       const conn = makeClient();
       await conn.connect();
@@ -112,6 +133,11 @@ test('Supabase-compatible social schema enforces tenant RLS and pilot cap', {
         await conn.query('ROLLBACK');
       }
     }
+
+    const privateLink = await asUser(A,
+      'SELECT client_id FROM postbro_social.postiz_organization_links')
+      .then(() => null, error => error);
+    assert.equal(privateLink?.code, '42501');
 
     const own = await asUser(A, 'SELECT id FROM postbro_social.clients ORDER BY id');
     assert.deepEqual(own.rows.map(x => x.id), [clientA]);
