@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>PostBro — Shared sign-in</title>
+<link rel="stylesheet" href="/social/styles.css">
+<script type="module" src="/oauth/consent.mjs"></script>
+</head>
+<body>
+<main>
+  <section class="card">
+    <h1>PostBro shared sign-in</h1>
+    <p id="message" role="status" aria-live="polite">Checking authorization request…</p>
+    <form id="login" hidden>
+      <label class="field">Invited email address
+        <input id="email" type="email" autocomplete="email" required maxlength="320">
+      </label>
+      <button type="submit">Send sign-in code</button>
+    </form>
+    <form id="verify" hidden>
+      <label class="field">Email verification code
+        <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" required pattern="[0-9]{6,8}">
+      </label>
+      <button type="submit">Verify and continue</button>
+    </form>
+    <section id="approval" hidden>
+      <h2 id="appName"></h2>
+      <p>This application requests the following account permissions:</p>
+      <ul id="scopes"></ul>
+      <p>Granting access does not grant access to another business, schedule content or publish posts.</p>
+      <div class="actions">
+        <button type="button" id="approve">Allow access</button>
+        <button type="button" id="deny" class="ghost">Deny access</button>
+      </div>
+      <button type="button" id="switchAccount" class="ghost">Use a different account</button>
+    </section>
+    <p class="muted">Private pilot · Existing invited accounts only</p>
+  </section>
+</main>
+</body>
+</html>
