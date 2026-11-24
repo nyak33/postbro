@@ -17,6 +17,7 @@ export function buildPrelaunchApp(config: SocialPrelaunchConfig, pool: PoolType)
       url: config.supabaseUrl,
       publishableKey: config.publishableKey,
     },
+    sso: config.sso,
   });
 
   // This is process liveness, NOT proof of database/SMTP/Auth readiness.
