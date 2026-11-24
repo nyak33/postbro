@@ -22,7 +22,7 @@ function config(fetcher?: typeof fetch) {
     ...(fetcher ? { fetcher } : {}),
   };
 }
-const cookieValue = (header: string) => header.split(';')[0];
+const cookieValue = (header: string) => header.split(';')[0]!;
 
 test('rejects untrusted IdP URLs, callbacks and invalid encryption keys', () => {
   assert.throws(() => validateSocialSsoOptions({
@@ -83,7 +83,7 @@ test('exchanges PKCE code and exposes an encrypted session only to a matching co
   const seen: { url?: string; method?: string; body?: string } = {};
   const mockFetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     seen.url = String(input);
-    seen.method = init?.method;
+    if (init?.method) seen.method = init.method;
     seen.body = String(init?.body);
     return new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3600 }), { status: 200 });
   }) as typeof fetch;
