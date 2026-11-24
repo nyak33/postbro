@@ -107,8 +107,10 @@ export function registerConsentRoutes(app: FastifyInstance, auth: SupabaseAuthOp
     const target = url.origin + url.pathname;
     if (!config.clients.some(c => c.redirectUri === target) ||
         (expected && target !== expected)) throw error();
-    if ((!url.searchParams.has('code') && !url.searchParams.has('error')) ||
-        url.searchParams.has('access_token') || url.searchParams.has('refresh_token')) throw error();
+    const keys = [...url.searchParams.keys()];
+    if (url.searchParams.has('code') === url.searchParams.has('error') ||
+        keys.some(key => !['code', 'state', 'error', 'error_description', 'error_uri'].includes(key)) ||
+        new Set(keys).size !== keys.length) throw error();
     return url.href;
   }
   async function upstream(endpoint: string, method: 'GET' | 'POST', token?: string,
