@@ -129,7 +129,7 @@ export class SocialSsoBridge {
     const flow = this.unseal(FLOW_COOKIE, cookie(cookies, FLOW_COOKIE)) as Partial<StoredFlow> | null;
     const p = query && typeof query === 'object' && !Array.isArray(query)
       ? query as Record<string, unknown> : {};
-    if (!flow || !Number.isFinite(flow.expiresAt) || Number(flow.expiresAt) <= Date.now() ||
+    if (!flow || (typeof flow.expiresAt !== 'number' || !Number.isFinite(flow.expiresAt)) || flow.expiresAt <= Date.now() ||
         typeof flow.state !== 'string' || !URLSAFE.test(flow.state) ||
         typeof flow.verifier !== 'string' || !URLSAFE.test(flow.verifier) ||
         typeof p.state !== 'string' || p.state !== flow.state ||
@@ -176,7 +176,7 @@ export class SocialSsoBridge {
     const saved = this.unseal(LOGIN_COOKIE, cookie(header, LOGIN_COOKIE)) as Partial<StoredLogin> | null;
     if (!saved || typeof saved.accessToken !== 'string' ||
         saved.accessToken.length < 20 || saved.accessToken.length > 3000 ||
-        !Number.isFinite(saved.expiresAt) || Number(saved.expiresAt) <= Date.now()) {
+        (typeof saved.expiresAt !== 'number' || !Number.isFinite(saved.expiresAt)) || saved.expiresAt <= Date.now()) {
       return null;
     }
     return 'Bearer ' + saved.accessToken;
