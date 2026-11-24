@@ -12,6 +12,7 @@ import {
   type SupabaseAuthOptions,
 } from '../security/supabase-auth.js';
 import { SocialSsoBridge, SocialSsoError, type SocialSsoOptions } from '../security/oidc-bridge.js';
+import { registerConsentRoutes, type ConsentOptions } from './oauth-consent.js';
 import {
   listTenantClients, getTenantClient, saveTenantBrand, saveTenantHistory,
   getPersonaReviewRequests, submitPersonaReviewRequest,
@@ -25,6 +26,7 @@ export interface PortalDependencies {
   pool: Pick<Pool, 'connect'>;
   auth: SupabaseAuthOptions;
   sso?: SocialSsoOptions;
+  consent?: ConsentOptions;
   publicDir?: string;
 }
 
@@ -75,6 +77,8 @@ export function buildSocialPortalApp(deps: PortalDependencies): FastifyInstance 
       return reply.send(readFileSync(path.join(publicDir, file.filename)));
     });
   }
+
+  if (deps.consent) registerConsentRoutes(app, deps.auth, deps.consent, publicDir);
 
   app.get('/api/social/config', async () => ({
     supabaseUrl: auth.origin,
