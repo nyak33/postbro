@@ -59,7 +59,7 @@ function cookie(header: string | undefined, name: string): string | null {
   if (typeof header !== 'string' || header.length > 10_000) return null;
   const entries = header.split(';').map(p => p.trim()).filter(p => p.startsWith(name + '='));
   if (entries.length !== 1) return null;
-  const value = entries[0].slice(name.length + 1);
+  const value = entries[0]!.slice(name.length + 1);
   return /^[A-Za-z0-9_-]{30,4000}$/.test(value) ? value : null;
 }
 
