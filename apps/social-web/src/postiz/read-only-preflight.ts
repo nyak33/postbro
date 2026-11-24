@@ -16,6 +16,8 @@ export class PostizPreflightError extends Error {
 export interface PostizReadOnlyTransport {
   groups(): Promise<unknown>;
   integrations(groupId: string): Promise<unknown>;
+  /** GET /public/v1/me returns the Postiz organization bound to this API credential. */
+  me?(): Promise<unknown>;
 }
 
 export type PostizReadFetch = (
@@ -75,6 +77,7 @@ export function createPostizReadOnlyTransport(
     }
   }
   return {
+    me: () => get('me'),
     groups: () => get('groups'),
     integrations: groupId => get('integrations?group=' +
       encodeURIComponent(identifier(groupId))),
