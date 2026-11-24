@@ -6,6 +6,7 @@
  * No secrets or connection strings are returned in thrown errors.
  */
 import type { PoolConfig } from 'pg';
+import { parseConsentEnv, type ConsentOptions } from '../http/oauth-consent.js';
 import { validateSocialSsoOptions, type SocialSsoOptions } from '../security/oidc-bridge.js';
 
 export interface SocialPrelaunchConfig {
@@ -14,6 +15,7 @@ export interface SocialPrelaunchConfig {
   publishableKey: string;
   databasePool: PoolConfig;
   sso?: SocialSsoOptions;
+  consent?: ConsentOptions;
   host: '127.0.0.1' | '::1';
   port: number;
 }
@@ -125,9 +127,14 @@ export function parseSocialPrelaunchConfig(
     } catch { return configError(); }
   }
 
+  let consent: ConsentOptions | undefined;
+  try { consent = parseConsentEnv(env); } catch { return configError(); }
+  if (consent && sso && consent.origin !== new URL(sso.callbackUrl).origin) return configError();
+
   return {
     projectRef,
     supabaseUrl: url,
+    ...(consent ? { consent } : {}),
     ...(sso ? { sso } : {}),
     publishableKey,
     databasePool,
